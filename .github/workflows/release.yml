@@ -1,0 +1,89 @@
+name: Release
+
+# 云端构建流水线 —— 与 SubTrans 同链：PyInstaller → Inno Setup 6 → Setup.exe + SHA256
+# 触发：手动（填版本号）或推送 v* 标签；全部步骤使用 PowerShell（pwsh）
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 0.4.0，需与 app/__init__.py 一致）"
+        required: true
+  push:
+    tags: ["v*"]
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 PyInstaller
+        run: pip install pyinstaller
+
+      - name: PyInstaller 打包（onefile 窗口版）
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name CineSort
+          --add-data "app\static;app\static"
+          --add-data "config.example.toml;."
+          run.py
+
+      - name: 安装 Inno Setup 6（云端构建机，对齐 SubTrans 的 choco 模式）
+        run: choco install innosetup -y --no-progress
+
+      - name: 解析版本号
+        id: ver
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $v = '${{ github.event.inputs.version }}'
+          } else {
+            $v = $env:GITHUB_REF_NAME -replace '^v', ''
+          }
+          "version=$v" | Add-Content -Path $env:GITHUB_OUTPUT
+
+      - name: 编译安装包（ISCC /Dversion 注入）
+        run: ISCC.exe /Dversion=${{ steps.ver.outputs.version }} installer\installer.iss
+
+      - name: 校验安装包非空壳
+        run: |
+          $f = "installer/Output/CineSort-setup-$($env:VERSION).exe"
+          $item = Get-Item $f
+          "{0}  {1:N0} bytes" -f $item.Name, $item.Length
+          if ($item.Length -lt 2MB) { throw "installer too small (<2MB): $($item.Length)" }
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: 生成 SHA256SUMS.txt
+        working-directory: installer/Output
+        run: |
+          Get-ChildItem 'CineSort-setup-*.exe' | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content SHA256SUMS.txt -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
+      - name: 上传构建产物（artifact）
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineSort-${{ steps.ver.outputs.version }}
+          path: |
+            dist/CineSort.exe
+            installer/Output/
+
+      - name: 发布 Release（仅 v* 标签触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            installer/Output/CineSort-setup-*.exe
+            installer/Output/SHA256SUMS.txt

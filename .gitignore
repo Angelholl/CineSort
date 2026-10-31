@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+build/
+dist/
+runtime/
+demo/
+gui-test-screenshots/
+config.toml
+startup-error.log
+installer/Output/
+startup-error.log
+*.spec
+!packaging/*.spec

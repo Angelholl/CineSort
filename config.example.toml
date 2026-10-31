@@ -1,0 +1,124 @@
+# ========= Jellyfin NFO 影片归类器 配置 =========
+# 复制本文件为 config.toml 后，按你的实际目录修改。
+# 所有路径支持 Windows 绝对路径（含 UNC，如 \\NAS\media\电影）。
+# 修改后可在 GUI「配置」页保存，保存时会自动校验。
+
+# 电影源根目录：待归类影片的顶层目录（工具会把其下的影片文件夹移动到目标媒体库）
+source_root = 'G:\Media\_incoming'
+
+# 兜底库：无法判定题材时的落点（目录必须已存在，可与 source_root 同盘）
+fallback_path = 'G:\Media\_incoming\未分类'
+
+# 归类策略：
+#   smart      多题材命中多个候选库时，用摘要评分在候选中择优，评分不足回退优先级表（推荐）
+#   priority   严格按优先级表，摘要只用于「题材完全未映射」时的预判
+#   genre_only 只看题材规则，完全不用摘要
+strategy = 'smart'
+
+# 目标已存在同名影片文件夹时的处理：
+#   skip   跳过并写入冲突报告（推荐）
+#   rename 加 " (2)" 后缀（要求 NFO 带 tmdb/imdb id，否则自动跳过）
+on_conflict = 'skip'
+
+# 兜底占比阈值：落入兜底库的影片比例是规则质量的直观指标
+# 超过 warn 值提醒，超过 block 值默认阻断执行（GUI 中可显式确认越过）
+warn_fallback_ratio = 0.15
+block_fallback_ratio = 0.30
+
+# 跨盘移动时的暂存目录（可选，默认自动放在目标库所在盘的库根旁边，
+# 目录名 .nfo-sorter-staging，库外暂存、校验后才原子改名进库）
+# staging_dir = 'D:\.nfo-sorter-staging'
+
+# 题材优先级：一部影片命中多个已映射题材时，排前面的优先。
+# （smart 策略下：先由摘要评分在候选库中择优，评分不足以区分时再按此表）
+genre_priority = ['动画', '科幻', '恐怖', '战争', '犯罪', '悬疑', '动作', '奇幻', '冒险', '喜剧', '爱情', '剧情', '纪录片']
+
+# 题材别名：NFO 中的变体写法 → 标准库名（匹配不区分大小写、全半角、多余空格）
+genre_aliases = { 'sci-fi' = '科幻', 'science fiction' = '科幻', 'scifi' = '科幻', 'action & adventure' = '冒险', '動作' = '动作', 'cartoon' = '动画', 'anime' = '动画', 'romance' = '爱情', 'thriller' = '惊悚', 'horror' = '恐怖', 'comedy' = '喜剧', 'drama' = '剧情', 'war' = '战争', 'crime' = '犯罪', 'fantasy' = '奇幻', 'adventure' = '冒险', 'documentary' = '纪录片', 'musical' = '音乐' }
+
+# 摘要（plot）关键词预判
+[plot]
+enabled = true       # 关闭后：未映射题材一律进兜底库
+min_score = 2.0      # 摘要评分达到该值才采纳预判（分 = 关键词权重 × 出现次数）
+normalize = false    # true 时按摘要长度平方根归一（你的摘要普遍很长时开启）
+
+# 媒体库定义：name = 标准题材名（同时是 genre_priority / 别名表里的参照名）
+# path = Jellyfin 媒体库目录（必须已存在；库之间不得嵌套、不得与源目录重叠）
+# keywords / keywords_weighted 用于摘要预判；不配置关键词的库不参与摘要预判
+[[library]]
+name = '科幻'
+path = 'G:\Jellyfin\电影\科幻'
+keywords = ['太空', '宇宙', '星球', '外星', '飞船', '太空舱', '机器人', '人工智能', '未来世界', '时空', '克隆', '末日', '舰队', '殖民', '赛博', '机械']
+keywords_weighted = { '外星人' = 2.0, '时间旅行' = 2.0, '星际' = 2.0 }
+
+[[library]]
+name = '动画'
+path = 'G:\Jellyfin\电影\动画'
+keywords = ['动画', '卡通', '动漫', '绘本', '手绘', '皮克斯', '吉卜力', '迪士尼', '漫画']
+keywords_weighted = { '动画片' = 2.0 }
+
+[[library]]
+name = '动作'
+path = 'G:\Jellyfin\电影\动作'
+keywords = ['打斗', '枪战', '爆破', '追车', '特工', '雇佣兵', '武术', '搏斗', '刺杀', '行动小组']
+keywords_weighted = { '动作片' = 2.0 }
+
+[[library]]
+name = '喜剧'
+path = 'G:\Jellyfin\电影\喜剧'
+keywords = ['搞笑', '滑稽', '闹剧', '幽默', '爆笑', '荒诞', '讽刺', '乌龙']
+keywords_weighted = { '喜剧片' = 2.0 }
+
+[[library]]
+name = '恐怖'
+path = 'G:\Jellyfin\电影\恐怖'
+keywords = ['鬼', '恶灵', '诅咒', '凶宅', '闹鬼', '吸血鬼', '丧尸', '诡异', '邪教', '驱魔', '血腥', '杀人狂']
+keywords_weighted = { '恐怖片' = 2.0 }
+
+[[library]]
+name = '爱情'
+path = 'G:\Jellyfin\电影\爱情'
+keywords = ['恋爱', '初恋', '告白', '情侣', '婚礼', '分手', '暗恋', '浪漫', '前任']
+keywords_weighted = { '爱情片' = 2.0 }
+
+[[library]]
+name = '剧情'
+path = 'G:\Jellyfin\电影\剧情'
+keywords = ['家庭', '成长', '人生', '命运', '救赎', '回忆', '亲情', '师生', '底层', '困境']
+keywords_weighted = {}
+
+[[library]]
+name = '战争'
+path = 'G:\Jellyfin\电影\战争'
+keywords = ['战争', '战场', '士兵', '军营', '战役', '登陆', '前线', '装甲', '狙击', '集中营']
+keywords_weighted = { '二战' = 2.0 }
+
+[[library]]
+name = '犯罪'
+path = 'G:\Jellyfin\电影\犯罪'
+keywords = ['罪犯', '黑帮', '抢劫', '贩毒', '监狱', '谋杀', '警匪', '诈骗', '绑匪', '扫黑']
+keywords_weighted = { '连环杀人' = 2.0 }
+
+[[library]]
+name = '悬疑'
+path = 'G:\Jellyfin\电影\悬疑'
+keywords = ['谜团', '侦探', '失踪', '真相', '推理', '谜案', '线索', '反转', '密室']
+keywords_weighted = { '悬案' = 2.0 }
+
+[[library]]
+name = '奇幻'
+path = 'G:\Jellyfin\电影\奇幻'
+keywords = ['魔法', '巫师', '巨龙', '精灵', '王国', '预言', '神话', '城堡', '魔戒', '咒语']
+keywords_weighted = {}
+
+[[library]]
+name = '冒险'
+path = 'G:\Jellyfin\电影\冒险'
+keywords = ['探险', '寻宝', '荒岛', '丛林', '远征', '遗迹', '宝藏', '生存', '漂流']
+keywords_weighted = {}
+
+[[library]]
+name = '纪录片'
+path = 'G:\Jellyfin\电影\纪录片'
+keywords = ['纪录', '真实事件', '采访', '解说', '自然', '野生动物', '历史档案']
+keywords_weighted = {}
