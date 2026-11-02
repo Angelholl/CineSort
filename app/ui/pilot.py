@@ -43,6 +43,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .viewmodel import LEVEL_BADGES as LEVEL_BADGE
+from .viewmodel import human_size
 
 # ------------------------------------------------------------------ 假数据
 
@@ -69,10 +71,6 @@ STATUS_BADGE = {
     "multi_version": ("多版本", "multi_version"),
     "incomplete_leftover": ("半成品残留", "incomplete_leftover"),
     "applied": ("已执行", "applied"),
-}
-LEVEL_BADGE = {
-    "rule": ("规则", "rule"), "plot": ("摘要预判", "plot"),
-    "learned": ("自学习", "learned"), "fallback": ("兜底", "fallback"),
 }
 LIBS = ["科幻", "动作", "恐怖", "喜剧", "剧情", "动画", "纪录", "犯罪"]
 
@@ -216,18 +214,6 @@ def make_badge(name: str, text: str) -> QLabel:
     # 铺满时看起来像个只读的输入框，会被误读成可编辑字段。
     lab.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
     return lab
-
-
-def human_size(nbytes: int) -> str:
-    """体积可读化。必须有 TB 档：整库规模轻松破 1000 GB，只到 GB
-    会写出「83708.4 GB」这种没法读的数字。"""
-    if nbytes <= 0:
-        return "—"
-    if nbytes >= 1024 ** 4:
-        return f"{nbytes / 1024 ** 4:,.2f} TB"
-    if nbytes >= 1024 ** 3:
-        return f"{nbytes / 1024 ** 3:,.1f} GB"
-    return f"{nbytes / 1024 ** 2:,.0f} MB"
 
 
 # ------------------------------------------------------------------ 计划页
