@@ -5,6 +5,8 @@ dist/
 runtime/
 demo/
 gui-test-screenshots/
+Temp/
+artifacts/
 config.toml
 startup-error.log
 installer/Output/
