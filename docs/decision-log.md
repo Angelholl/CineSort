@@ -72,3 +72,36 @@
 - CI 同步：release.yml 全部步骤 `shell: pwsh`（defaults.run.shell），版本解析/空壳校验/SHA256SUMS 均改 pwsh 实现（Get-FileHash/Get-Item），git-bash 依赖清零。
 - 验证：4 个 .ps1 解析器 0 语法错；build_exe.ps1 实跑产出 dist\CineSort.exe；start_debug.ps1 冒烟（8796 端口响应）；pytest 91 passed。
 - 教训：项目迁 D:\CineSort 后，曾有一次写文件仍落旧 G 盘路径（已归位并清残）；跨驱器迁移后所有写操作必须先核对目标根。
+
+## D-20261102-01 交互形态再审：PySide6 原生桌面 GUI（supersedes D-20261031-01）
+- 背景：用户明确要求"项目做成 GUI 形式，不要这种网页版本"。属需求变更，非 D-20261031-01 当时判断失误（当时约束是"要 GUI、零第三方依赖"，未提原生窗口）。
+- 用户拍板三项（AskUserQuestion 明确选择）：① 技术栈 = PySide6（Qt），已被告知体积/启动代价后仍选；② 现有网页版（server.py + static/index.html）= 彻底删除；③ 分发 = 只保留安装版（onedir + Inno Setup），不再出便携 onefile。
+- 决策：主界面改为 PySide6 进程内原生窗口，不再有 HTTP 服务与端口；core 十模块原样复用，仅 jobs.py 做薄适配；分发链改 PyInstaller onedir → Inno Setup。
+- [HIGH_RISK_OBJECTION]（decision-critic）处置：**部分采纳、部分驳回**。
+  - 异议内容：反对删除 `app/server.py` / `app/static/index.html` / 重写 `tests/test_api.py`——这是唯一"扫描→执行→回滚"磁盘级全链路集成证据与唯一回退路径，不可逆。
+  - **采纳其实质关切**：删除 HTTP 层之前，先把 `test_api.py` 的 5 个用例（含 `test_scan_apply_undo_flow`）迁移为不依赖 HTTP 的 core 级集成测试（直接驱动 AppState + JobManager），测试基线只增不减（91 → ≥96）。全链路磁盘证据不消失。
+  - **驳回"保留一个版本周期"**：用户已明确拍板彻底删除；且评议员自己列的 R8（双 UI 维护负担）正是保留的代价。迁移后集成覆盖等价，保留 stdlib HTTP 层 + 610 行 HTML 只留维护债。
+- 驳回 decision-critic 的"选 tkinter 不选 Qt"建议：技术栈由用户拍板（不可委托项）。评议员对 A 的两项最重指控——onefile 解包 Qt 插件的静默失败模式、1.5~4 s 启动——已被用户"只保留安装版/onedir"的决定消解（onedir 下 Qt 启动为原生级）。"零第三方依赖"原则的失效由用户显式接受。评议员实测 ttk.Treeview 2 万行 0.12 s 成立，但 Qt 的单元格内控件/主题/DPI 一致性是本项目长期方向。
+- **采纳并列为硬性施工纪律**（写进各施工卡）：
+  1. `preflight.run_preflight()` 必须离开 UI 线程（内部 `tasklist` subprocess 最长 15 s + `disk_usage` + staging 目录遍历，同步调用即白屏）。
+  2. 任务运行中关闭窗口必须显式确认（`closeEvent` 拦截），避免迁移中断留 `.incomplete-*`。
+  3. 快慢双 tick：快 tick（约 300 ms）只读 `job.snapshot()`；`state_snapshot()`（读 journals 目录 + learned.json）放慢 tick（约 2 s）。
+  4. `AppState` 从 `server.py` 抽到 `app/state.py`（UI 层不得依赖 HTTP 模块）。
+  5. DPI 感知前置（`SetProcessDpiAwarenessContext` + Qt 高 DPI），150% 缩放下不裁字不重叠列为验收项。
+  6. **Phase-0 样式门禁**：先只做计划页 + 假数据样机，出 100%/150% 截图交用户签字，签字后才展开其余三页。不接受"先做完全部再调样式"。
+- [MATERIAL_CONFLICT] 裁定：`app/paths.py:40` 的 APPDATA 回退目录名以 **`CineSort`** 为准（D-20261101-05 与 installer.iss 注释为意图，代码属漏改）。改安装版分发后 Program Files 不可写 → APPDATA 回退从边缘情况变为主路径，必须修，并加旧 `%APPDATA%\JellyfinNFOSorter` 只读迁移兜底 + 回归测试。
+- 验收协议变更（**待 owner 批准**，规则变更不可委托）：项目规则"GUI 变更提交前 web-gui-tester 黑盒验证"对 Qt 桌面窗口物理不适用（那是浏览器自动化）。替代协议：① view-model 单测（`app/ui/viewmodel.py` 零 Qt 导入）+ widget 级驱动测试（`QT_QPA_PLATFORM=offscreen` + `QTest`，不引入 pytest-qt）② 冻结 exe 真实启动冒烟 ③ 100%/150% DPI 截图存档（延续 `gui-test-screenshots/` 惯例）④ 5000 行计划规模冒烟。
+- 连带失效：D-20261101-01 / D-20261101-04 的"onefile 便携 exe 为主产物"结论被本条取代；README"零第三方依赖"价值主张改为"运行时仅 PySide6 一项"。文档漂移顺带修：README:104 "73 个用例" 实际 91。
+
+## D-20261102-02 GUI 验收协议：对齐 SubTrans 范式（owner 批准"SubTrans 用的那套"）
+- 背景：owner 就"web-gui-tester 不适用于原生窗口后换哪套协议"答复"SubTrans 用的哪套"。先调研 D:\SubTrans 实际做法（code-reader，只读），再据其映射。
+- SubTrans 实测范式（证据）：GUI = pywebview + pythonnet(WebView2) 内嵌 HTML/JS。三层验收——① 后端 API 层单测不启窗口（`tests/test_gui_api.py` 375 例 + `test_gui_api_gaps.py` 53 例，`object.__new__` 绕开 `__init__` 副作用，`pytest.mark.gui` + `importorskip("webview")` 未装 extra 即 skip）；② 前端源码静态断言（`test_gui_js_static.py` 246 例 + `node --check`；`test_ui_phase3_redlines.py` 9 例 UI 红线静态钉）；③ 一次性黑盒台架（`Temp/gui-blackbox-*/`：HTTP 伺服生产 assets + `stub_bridge.js` 桩桥 + puppeteer-core 驱动本机 Edge headless 真实点击 + 只读 DOM 断言 + 截图，产物落 gitignore 的 Temp/ 不入库）。每卡验证链原文见 `docs/design/d1013-S6复议-布局表面卷.md:194`（file:// 走查 → computed-style 抽样 → 截图 diff 100%/125%/150% → 暗色专项 → 断点 → AA 复测 → web-gui-tester 黑盒）；未跑黑盒者提交信息按规注明「GUI 未验证」（同文件 :182）。CI：`ci.yml` ruff → mypy baseline gate → pytest（GUI 用例 skip）；`gui-probe.yml` 月级 schedule 探针（非 required）；`release.yml` 只做产物存在性/体积断言（安装器 ≥20MB 防空壳）+ CLI 无头语义冒烟，**GUI exe 明确不做 CI 冒烟**（:125-127 注释"GUI 真机验收归安装反馈轮"）。dev 依赖仅 pytest/pytest-cov/mypy/ruff，**无 pytest-qt/FlaUI/WinAppDriver/Playwright**。
+- 映射到 CineSort（PySide6）后的协议，替换原"web-gui-tester 黑盒"条目：
+  1. **逻辑层单测为主证据**：`app/ui/viewmodel.py` 零 Qt 导入，承载选择集/筛选/改判 overrides/ack 门禁/体积汇总/会话状态等全部决策，穷举单测不启动窗口（对应 SubTrans test_gui_api.py 范式；这是把逻辑推出 UI 层的核心可测试性前提）。
+  2. **UI 源码静态断言 + 红线钉**：对 Qt UI 源码做静态断言（tab 齐备、按钮文案、`closeEvent` 有守卫、UI 线程无同步 preflight 调用等），对应 SubTrans `test_gui_js_static.py` / `test_ui_phase3_redlines.py`。
+  3. **截图走查 100%/125%/150% DPI**：产物落 `Temp/`（gitignore），路径写进卡面执行记录存档，不入库（对齐 SubTrans，不再新增 `gui-test-screenshots/` 入库惯例；既有目录保留不动）。
+  4. **不引入任何新的 dev/测试依赖**：widget 级驱动测试用 PySide6 自带 `QTest` + `QT_QPA_PLATFORM=offscreen`，零新增包（此项为超出 SubTrans 对等面的补充——Qt 免费提供该能力，SubTrans 的 HTML 面靠 puppeteer 才有黑盒，故补一条等价物）。
+  5. **CI**：产物存在性/体积断言 + 无头冒烟；GUI exe 真机验收归人工安装轮，不做 CI 冒烟（windowed 子系统无 stdout 可断言）。
+  6. 提交信息仍按规注明「GUI 已验证 / GUI 未验证」，未验证时完成通知追加同句。
+- 静态检查环节补配：CineSort 此前无 linter（验证链第一环空转）。本机已有 ruff 0.16.7，全仓既有基线 42 项（不追溯清理）；自 D-20261102-01 起每卡验证链第一环 = `python -m ruff check <本卡改动文件>`，**改动文件必须 0 项**，全仓基线只降不增。
+- 测试基线口径澄清：C1 后基线 93。C2 移植 `test_api.py` 4 个非页面用例 + 新增 1 条 BusyError 用例 → 98。后续删除网页版卡移除 `test_api.py`（5 例）→ 93，**净覆盖相对迁移前基线不降**（删除的 5 例已 1:1 由 test_flow.py 承接，页面用例由 Qt 窗口标题断言承接）。"只增不减"按此净口径执行并在提交信息 verify: 中写明前后数。
