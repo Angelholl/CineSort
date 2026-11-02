@@ -14,7 +14,8 @@ from pathlib import Path
 
 from . import __version__
 from .paths import app_root, default_config_path, resource_root
-from .server import AppState, create_server
+from .server import create_server
+from .state import AppState
 
 log = logging.getLogger("nfo-sorter")
 
