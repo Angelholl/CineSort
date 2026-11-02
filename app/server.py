@@ -4,13 +4,10 @@ from __future__ import annotations
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 from . import __version__
-from .core import jobs as jobs_mod, preflight
-from .core import learned as learned_store
-from .core.config import ConfigError, describe, load_config, save_config_dict
-from .core.journal import done_entries, is_valid_session_name
+from .core import jobs as jobs_mod
+from .core.config import ConfigError
 from .paths import resource_root
 
 log = logging.getLogger("nfo-sorter.server")
@@ -20,63 +17,32 @@ _STATIC_DIR = resource_root() / "app" / "static"
 from .state import AppState  # re-export：保持既有 import 路径有效
 
 
-def undo_preview(state: AppState, fname: str) -> dict:
-    if not is_valid_session_name(fname):
-        raise ValueError("非法的会话文件名")
-    path = state.runtime_dir() / "journals" / fname
-    if not path.is_file():
-        raise ValueError("会话日志不存在")
-    ops = []
-    for e in reversed(done_entries(path)):
-        dst = Path(e.get("dst_dir", ""))
-        src = Path(e.get("src_dir", ""))
-        st = "ok"
-        if not dst.exists():
-            st = "skip_target_missing"
-        elif e.get("kind", "dir") == "dir" and src.exists():
-            st = "skip_src_exists"
-        ops.append({"unit_id": e.get("unit_id", "?"), "kind": e.get("kind", "dir"),
-                    "src_dir": str(src), "dst_dir": str(dst), "state": st})
-    return {"ops": ops, "file": fname}
-
-
 def route_post(state: AppState, path: str, body: dict) -> dict:
+    """薄转发层：仅做 JSON 字段到 str 的归一化，业务编排在 AppState 里。"""
     if path == "/api/scan":
-        state.jobs.start("scan", lambda job: jobs_mod.run_scan(state, job))
-        return {"ok": True}
+        return state.start_scan()
     if path == "/api/apply":
         ids = [str(x) for x in (body.get("ids") or [])]
         acks = {str(x) for x in (body.get("acks") or [])}
         overrides = {str(k): str(v)
                      for k, v in (body.get("overrides") or {}).items()}
-        state.jobs.start("apply", lambda job: jobs_mod.run_apply(
-            state, job, ids, acks, overrides))
-        return {"ok": True}
+        return state.start_apply(ids, acks, overrides)
     if path == "/api/undo":
-        fname = str(body.get("file") or "")
-        state.jobs.start("undo", lambda job: jobs_mod.run_undo(state, job, fname))
-        return {"ok": True}
+        return state.start_undo(str(body.get("file") or ""))
     if path == "/api/undo_preview":
-        return undo_preview(state, str(body.get("file") or ""))
+        return state.undo_preview(str(body.get("file") or ""))
     if path == "/api/preflight":
-        cfg = load_config(state.config_path)
         ids = {str(x) for x in (body.get("ids") or [])}
-        items = preflight.run_preflight(cfg, state.plan(), selected_ids=ids or None)
-        return {"items": items}
+        return {"items": state.preflight_items(ids or None)}
     if path == "/api/cleanup_staging":
-        cfg = load_config(state.config_path)
-        return {"removed": preflight.cleanup_staging(cfg)}
+        return {"removed": state.cleanup_staging()}
     if path == "/api/learned_forget":
-        learned_store.forget(state.runtime_dir(),
-                             str(body.get("key") or ""), str(body.get("lib") or ""))
-        return {"learned": learned_store.items(
-            learned_store.load(state.runtime_dir()))}
+        return {"learned": state.learned_forget(
+            str(body.get("key") or ""), str(body.get("lib") or ""))}
     if path == "/api/config":
-        new_cfg = save_config_dict(state.config_path, body)
-        state.invalidate_plan()          # 配置已变，旧计划按哈希自动过期
-        return {"valid": True, "config": describe(new_cfg)}
+        return {"valid": True, "config": state.save_config(body)}
     if path == "/api/cancel":
-        return {"cancelled": state.jobs.cancel()}
+        return {"cancelled": state.cancel_job()}
     raise KeyError(f"未知 API：{path}")
 
 
@@ -143,7 +109,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._send(200, {"error": str(exc)})
             except (jobs_mod.BusyError, ValueError) as exc:
                 self._send(409, {"error": str(exc)})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.exception("POST %s 失败", path)
                 self._send(500, {"error": str(exc)})
 

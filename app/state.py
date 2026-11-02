@@ -2,19 +2,31 @@
 from __future__ import annotations
 
 import threading
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 from . import __version__
 from .core import jobs as jobs_mod
 from .core import learned as learned_store
-from .core.config import ConfigError, describe, load_config, raw_describe
-from .core.journal import list_sessions
+from .core import preflight
+from .core.config import (
+    ConfigError,
+    describe,
+    load_config,
+    raw_describe,
+    save_config_dict,
+)
+from .core.journal import done_entries, is_valid_session_name, list_sessions
 from .core.planner import load_plan, plan_digest
 
 
 class AppState:
-    """服务端共享状态：配置路径 / 计划缓存 / 任务管理器。"""
+    """共享状态与操作入口：配置路径 / 计划缓存 / 任务管理器。
+
+    这里承载全部"用户可触发"的操作（扫描/执行/回滚/体检/配置…），
+    使 HTTP 层与原生 GUI 层都只做参数归一化与渲染，不重复业务编排。
+    """
 
     def __init__(self, config_path: Path):
         self.config_path = Path(config_path)
@@ -62,7 +74,68 @@ class AppState:
             "config_error": cfg_error,
             "plan": plan,
             "plan_digest": plan_digest(plan) if plan else None,
-            "job": self.jobs.job.snapshot() if self.jobs.job else None,
+            "job": self.job_snapshot(),
             "sessions": list_sessions(self.runtime_dir() / "journals"),
             "learned": learned_store.items(learned_store.load(self.runtime_dir())),
         }
+
+    # ------------------------------------------------------- 任务与操作入口
+
+    def job_snapshot(self) -> dict | None:
+        return self.jobs.job.snapshot() if self.jobs.job else None
+
+    def start_scan(self) -> dict:
+        """启动扫描任务。BusyError 由 JobManager 抛出，不在此吞掉。"""
+        self.jobs.start("scan", lambda job: jobs_mod.run_scan(self, job))
+        return {"ok": True}
+
+    def start_apply(self, ids: list[str], acks: set[str],
+                    overrides: dict[str, str]) -> dict:
+        self.jobs.start("apply", lambda job: jobs_mod.run_apply(
+            self, job, ids, acks, overrides))
+        return {"ok": True}
+
+    def start_undo(self, fname: str) -> dict:
+        self.jobs.start("undo", lambda job: jobs_mod.run_undo(self, job, fname))
+        return {"ok": True}
+
+    def cancel_job(self) -> bool:
+        return self.jobs.cancel()
+
+    def undo_preview(self, fname: str) -> dict:
+        if not is_valid_session_name(fname):
+            raise ValueError("非法的会话文件名")
+        path = self.runtime_dir() / "journals" / fname
+        if not path.is_file():
+            raise ValueError("会话日志不存在")
+        ops = []
+        for e in reversed(done_entries(path)):
+            dst = Path(e.get("dst_dir", ""))
+            src = Path(e.get("src_dir", ""))
+            st = "ok"
+            if not dst.exists():
+                st = "skip_target_missing"
+            elif e.get("kind", "dir") == "dir" and src.exists():
+                st = "skip_src_exists"
+            ops.append({"unit_id": e.get("unit_id", "?"), "kind": e.get("kind", "dir"),
+                        "src_dir": str(src), "dst_dir": str(dst), "state": st})
+        return {"ops": ops, "file": fname}
+
+    def preflight_items(self, ids: set[str] | None = None) -> list[dict]:
+        # 注意：内部含 tasklist 子进程（最长 15s）与磁盘遍历，调用方不得在
+        # UI 线程直接调用（D-20261102-01 纪律 1）。后台化在后续卡处理。
+        cfg = load_config(self.config_path)
+        return preflight.run_preflight(cfg, self.plan(), selected_ids=ids or None)
+
+    def cleanup_staging(self) -> int:
+        # 同上：目录遍历属慢活，不得在 UI 线程直接调用。
+        return preflight.cleanup_staging(load_config(self.config_path))
+
+    def learned_forget(self, key: str, lib: str) -> list[dict]:
+        learned_store.forget(self.runtime_dir(), key, lib)
+        return learned_store.items(learned_store.load(self.runtime_dir()))
+
+    def save_config(self, data: dict) -> dict:
+        new_cfg = save_config_dict(self.config_path, data)
+        self.invalidate_plan()          # 配置已变，旧计划按哈希自动过期
+        return describe(new_cfg)
