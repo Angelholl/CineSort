@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..state import AppState
 from . import theme
+from .config_tab import ConfigTab
 from .exec_tab import ExecTab
 from .plan_tab import PlanTab
 
@@ -87,7 +88,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.plan_tab, "① 分类计划")
         self.exec_tab = ExecTab(self.state, toast=self.toast)
         self.tabs.addTab(self.exec_tab, "② 执行 / 回滚")
-        for name in ("③ 配置", "④ 体检"):
+        self.config_tab = ConfigTab(self.state, toast=self.toast)
+        self.tabs.addTab(self.config_tab, "③ 配置")
+        for name in ("④ 体检",):
             ph = QWidget()
             pl = QVBoxLayout(ph)
             tip = QLabel(f"{name} —— 下一张卡实现（Phase-0 门禁已过）")
@@ -108,6 +111,7 @@ class MainWindow(QMainWindow):
     def _slow_tick(self) -> None:
         self.plan_tab.refresh()
         self.exec_tab.refresh_sessions()
+        self.config_tab.refresh()
 
     def _fast_tick(self) -> None:
         snap = self.state.job_snapshot()
