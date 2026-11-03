@@ -103,6 +103,7 @@ class DoctorTab(QWidget):
         self.btn_doctor.setEnabled(not busy)
         self.btn_cleanup.setEnabled(not busy)
         self.empty_hint.setStyleSheet("")
+        self.empty_hint.show()
         self.empty_hint.setText("体检运行中…" if busy else IDLE_TEXT)
 
     def _run_check(self) -> None:
@@ -177,3 +178,4 @@ class DoctorTab(QWidget):
             self.result_tree.insertTopLevelItem(0, summary)
         self.btn_cleanup.setVisible(
             any(str(i.get("code")) == "staging_leftover" for i in items))
+        self.empty_hint.hide()   # 结果已渲染，空态提示让位
