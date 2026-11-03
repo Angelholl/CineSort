@@ -16,6 +16,10 @@ defaults:
   run:
     shell: pwsh
 
+# 新仓库 GITHUB_TOKEN 默认只读；不声明写权限则发布 Release 步骤 403
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
