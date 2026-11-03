@@ -10,13 +10,13 @@
 
 ## 快速开始
 
-### 方式一：exe（推荐，参考 subtrans 的独立可执行分发）
+### 方式一：exe（推荐，onedir 目录分发 + Inno Setup 安装版）
 
-直接运行 `dist\CineSort.exe`：单文件、免 Python 环境，双击即打开原生窗口。
+直接运行 `dist\CineSort\CineSort.exe`：免 Python 环境，双击即打开原生窗口。
 首次启动会在 exe 旁生成 `config.toml`（便携模式）；若放在无写权限的目录（如
 Program Files）则自动改用 `%APPDATA%\CineSort\config.toml`。
 
-自己构建：`pip install pyinstaller` 后运行 `tools\build_exe.ps1`（PowerShell 7）。
+自己构建：`pip install pyinstaller PySide6==6.12.0` 后运行 `tools\build_exe.ps1`（PowerShell 7）。
 安装向导版：与 SubTrans 同链（PyInstaller → Inno Setup 6）。本机安装 Inno Setup 6
 （[官网](https://jrsoftware.org/isdl.php) / `winget install JRSoftware.InnoSetup` /
 `choco install innosetup`）后运行 `tools\build_installer.ps1`，脚本自动从源码读版本号

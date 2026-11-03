@@ -1,9 +1,9 @@
 ; Inno Setup 6 安装包定义 —— CineSort
-; 先运行 tools\build_exe.bat 生成 dist\CineSort.exe，再运行 tools\build_installer.bat
+; 先运行 tools\build_exe.ps1 生成 dist\CineSort\（onedir 全目录），再运行 tools\build_installer.ps1
 ; 版本号由构建脚本经 /Dversion 注入（对齐 SubTrans 的 ISCC /Dversion 模式）
 
 #ifndef version
-  #define version "0.4.0"
+  #define version "0.5.0"
 #endif
 
 [Setup]
@@ -25,7 +25,7 @@ UninstallDisplayIcon={app}\CineSort.exe
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
 
 [Files]
-Source: "..\dist\CineSort.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\CineSort\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config.example.toml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 

@@ -1,12 +1,12 @@
 #requires -Version 7.0
-# 用 Inno Setup 6 把 dist\CineSort.exe 打成安装包（版本号经 /Dversion 注入，对齐 SubTrans）
+# 用 Inno Setup 6 把 dist\CineSort（onedir 全目录）打成安装包（版本号经 /Dversion 注入，对齐 SubTrans）
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-if (-not (Test-Path "dist\CineSort.exe")) {
-    throw "缺少 dist\CineSort.exe，请先运行 tools\build_exe.ps1"
+if (-not (Test-Path "dist\CineSort\CineSort.exe")) {
+    throw "缺少 dist\CineSort\CineSort.exe，请先运行 tools\build_exe.ps1"
 }
 
 $candidates = @()
@@ -18,7 +18,7 @@ if (-not $iscc) {
     Write-Host "未找到 Inno Setup 6（ISCC.exe）。" -ForegroundColor Yellow
     Write-Host "本机安装：winget install JRSoftware.InnoSetup 或 https://jrsoftware.org/isdl.php"
     Write-Host "免安装替代：推送 GitHub 后由 .github/workflows/release.yml 云端构建。"
-    Write-Host "当前可先分发便携版 dist\CineSort.exe。"
+    Write-Host "当前可先分发 onedir 目录 dist\CineSort\。"
     exit 1
 }
 
