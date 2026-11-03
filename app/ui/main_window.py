@@ -189,7 +189,8 @@ def main(argv=None) -> int:
     parser.add_argument("--screenshot", default=None)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=800)
-    parser.add_argument("--tab", type=int, default=0, help="启动后选中的标签页索引")
+    parser.add_argument("--tab", type=int, default=0,
+                        help="选中标签页索引（配合 --screenshot 使用）")
     args = parser.parse_args(argv)
 
     if args.scale != 1.0:

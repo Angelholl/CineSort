@@ -159,7 +159,7 @@ class DoctorTab(QWidget):
             level = str(it.get("level", "info"))
             code = str(it.get("code", ""))
             message = str(it.get("message", code))
-            if it.get("level") == "block":
+            if level == "block":
                 has_block = True
             prefix = LEVEL_PREFIX.get(level, "")
             color = QColor(LEVEL_COLOR.get(level, theme.DIM))
