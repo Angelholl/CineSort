@@ -105,3 +105,14 @@
   6. 提交信息仍按规注明「GUI 已验证 / GUI 未验证」，未验证时完成通知追加同句。
 - 静态检查环节补配：CineSort 此前无 linter（验证链第一环空转）。本机已有 ruff 0.16.7，全仓既有基线 42 项（不追溯清理）；自 D-20261102-01 起每卡验证链第一环 = `python -m ruff check <本卡改动文件>`，**改动文件必须 0 项**，全仓基线只降不增。
 - 测试基线口径澄清：C1 后基线 93。C2 移植 `test_api.py` 4 个非页面用例 + 新增 1 条 BusyError 用例 → 98。后续删除网页版卡移除 `test_api.py`（5 例）→ 93，**净覆盖相对迁移前基线不降**（删除的 5 例已 1:1 由 test_flow.py 承接，页面用例由 Qt 窗口标题断言承接）。"只增不减"按此净口径执行并在提交信息 verify: 中写明前后数。
+
+## D-20261104-01 GUI 阶段收口：四页全齐 + 网页版删除（owner 拍板"完整桌面成品"档）
+- 阶段收口定义（owner AskUserQuestion 拍板）：③ 配置页 + ④ 体检页补齐 → 启动链切换原生窗口 → 彻底删网页版；安装包（onedir + Inno Setup）不在本阶段。
+- 流水：C3 执行/回滚页（eefff2d+a9f3928，tests +11）→ C4 配置页（bac3be7+95b55c5，+14）→ C5 体检页（5408302+2065162，+11）→ C6 启动链+删网页版（f70a6dd+c1ae440，+3/−5）；全程 opencode 免费模型配额耗尽僵死，改派 ZCode code-Executor 执行者通道。
+- 门禁白名单拍板（规划员）：`BlockConfirmDialog.NON_ACKABLE` 扩为 {paths_missing, disk_space, staging_leftover}（可勾越过仅 jellyfin_running/fallback_ratio，与网页版白名单一致，core run_apply 只看 code not in acks 故 UI 收紧即生效）；staging_leftover 文案引导至④页清理。
+- C6 基线净口径裁决：卡面 ≥167/≥168 系算术错误，正确净口径 165 = 167 − 5（test_api，D-20261102-02 预批删除、test_flow 1:1 承接）+ 3（test_entry）；test_state 2 例保持。净口径相对 162 的非 API 基线 +3。
+- 启动垫片陷阱（C6 执行者发现、规划员验收修正）：PATH 首个 pythonw 落在无 PySide6 的 conda 环境（J:\whisperjav 3.13），双击 .cmd 静默失败；start_gui/start_debug.ps1 改为逐候选真实 import 探测（py -3.12 优先），窗口化取所选解释器同目录 pythonw.exe；.cmd 同链真启动 GUI-LAUNCHED 实证。
+- 单实例锁 `_acquire_lock` 自 main_gui.py 迁入 app/ui/main_window.py（非阻塞/句柄持存/失败弹窗退出码 1/demo 不抢锁），test_entry 钉语义。
+- 删除面：app/server.py、app/main_gui.py、app/static/index.html、tests/test_api.py、JellyfinNFOSorter.spec（后者 *.spec 被 .gitignore 忽略从未跟踪，磁盘 rm；CineSort.spec 同属 ignore 磁盘维护 datas，不入库——spec 文件版本控制缺失为既有事实）。
+- 全量测试基线：131（C2 后）→ 165（C6 后）。GUI 已验证：offscreen 截图（100%/150%）+ 视图逻辑单测 + .cmd 同链真启动冒烟。
+- 遗留延后项：QTableWidget 样板三处重复（UI 打磨卡）；会话表 2s 全量重渲选中态保持；③ 页配置横幅/④ 页空态提示等小瑕疵已验收期修；安装包链（onedir + Inno Setup + CI）未启动。
