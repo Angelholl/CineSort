@@ -16,7 +16,7 @@ def test_importing_state_does_not_pull_http_server():
         "print(bad);sys.exit(1 if bad else 0)"
     )
     proc = subprocess.run([sys.executable, "-c", code],
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, timeout=60, check=False)
     assert proc.returncode == 0, f"app.state 拖进了 HTTP 模块：{proc.stdout}{proc.stderr}"
 
 
@@ -35,7 +35,3 @@ def test_state_snapshot_shape(tmp_path):
     assert state.plan() is None
     state.invalidate_plan()
     assert state.runtime_dir() == tmp_path / "runtime"
-
-    # 防回归：server 的 re-export 必须仍指向同一个类
-    from app.server import AppState as S2
-    assert S2 is AppState

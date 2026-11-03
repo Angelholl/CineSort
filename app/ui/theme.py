@@ -7,7 +7,7 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
-# 与网页版 :root 一一对应（app/static/index.html:8-12）
+# 与网页版 :root 变量一一对应（原生 QSS，无 HTML）
 BG = "#0e1420"
 PANEL = "#161e2d"
 PANEL_ALT = "#202d42"        # 交替行：与 PANEL 的色差需肉眼可辨（斑马纹）

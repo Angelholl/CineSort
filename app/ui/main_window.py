@@ -33,6 +33,30 @@ from .plan_tab import PlanTab
 FAST_MS = 300
 SLOW_MS = 2000
 
+# 单实例锁句柄：保持持有到进程退出（锁随句柄存活）
+_lock_fh = None
+
+
+def _acquire_lock(runtime_dir: Path):
+    """单实例锁：msvcrt.locking（Windows）/ fcntl.flock（其他）。"""
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    # 句柄须持存到进程退出（锁随句柄存活），不能走 context manager
+    fh = open(runtime_dir / "app.lock", "a+b")  # noqa: SIM115
+    try:
+        import msvcrt
+        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    except ImportError:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            return None
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
 
 class MainWindow(QMainWindow):
     def __init__(self, state: AppState | None, demo_units: list[dict] | None = None,
@@ -177,7 +201,7 @@ def main(argv=None) -> int:
     theme.apply_theme(app)
 
     from ..paths import default_config_path
-    if args.demo:
+    if args.demo:  # demo 模式不抢锁
         from .demo_data import fake_units
         state, units, cfg_path = None, fake_units(args.rows), None
     else:
@@ -189,6 +213,12 @@ def main(argv=None) -> int:
                 cfg_path.parent.mkdir(parents=True, exist_ok=True)
                 cfg_path.write_text(example.read_text(encoding="utf-8"),
                                     encoding="utf-8")
+        global _lock_fh
+        _lock_fh = _acquire_lock(cfg_path.parent / "runtime")
+        if _lock_fh is None:
+            QMessageBox.critical(None, "CineSort",
+                                 "已有 CineSort 实例在运行（锁文件：runtime/app.lock）。")
+            return 1
         state, units = AppState(cfg_path), None
 
     win = MainWindow(state, demo_units=units, config_path=cfg_path)

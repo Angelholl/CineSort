@@ -7,7 +7,6 @@ Set-Location $root
 
 python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --name CineSort `
-    --add-data "app\static;app\static" `
     --add-data "config.example.toml;." `
     run.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 构建失败（退出码 $LASTEXITCODE）" }

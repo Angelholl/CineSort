@@ -2,8 +2,7 @@
 
 按 NFO 元数据把影片自动归入题材媒体库（Jellyfin / Emby 等）。读取每部影片 NFO 中的题材（`<genre>`）与摘要（`<plot>`），把影片文件夹归类移动到对应媒体库目录。**一部电影命中多个题材时，按可解释的决策链挑选唯一归属**，全程只读预览 → 确认 → 执行 → 可回滚，并带自学习。
 
-- 零第三方依赖：Python 3.11+ 标准库实现（开发测试仅用 pytest）
-- 本地 Web GUI：仅绑定 127.0.0.1，双击脚本或 exe 启动自动打开浏览器
+- 运行时仅 PySide6 一项第三方依赖：Python 3.11+，界面为 PySide6 原生窗口
 - **已刮削文件夹整目录迁移**：NFO/海报/海报集/字幕/extras/花絮/预告一个不少（计划行内显示文件数与体积）
 - **自学习**：人工改判与确认结果沉淀为「题材 → 库」映射，多次确认后自动外推
 - **事务安全**：冻结计划 + 漂移检测 + 库外暂存校验 + 原子改名 + 逐会话 fsync 日志 + 一键回滚
@@ -13,7 +12,7 @@
 
 ### 方式一：exe（推荐，参考 subtrans 的独立可执行分发）
 
-直接运行 `dist\CineSort.exe`：单文件、免 Python 环境，双击自动打开浏览器。
+直接运行 `dist\CineSort.exe`：单文件、免 Python 环境，双击即打开原生窗口。
 首次启动会在 exe 旁生成 `config.toml`（便携模式）；若放在无写权限的目录（如
 Program Files）则自动改用 `%APPDATA%\CineSort\config.toml`。
 
@@ -27,12 +26,12 @@ Program Files）则自动改用 `%APPDATA%\CineSort\config.toml`。
 ### 方式二：源码运行
 
 1. 复制 `config.example.toml` 为 `config.toml`，改成你的实际目录（也可直接在 GUI「配置」页填写保存，保存时自动校验）。
-2. 双击 `启动媒体分类工具.cmd`（无窗口后台运行）；或 `启动调试控制台.cmd` 看日志；或 PowerShell 7 里 `pwsh scripts\start_debug.ps1`。双击垫片需要 PowerShell 7（`winget install Microsoft.PowerShell`）。
-3. 浏览器自动打开 `http://127.0.0.1:8765/`。
+2. 双击 `启动媒体分类工具.cmd`（后台起原生窗口）；或 `启动调试控制台.cmd` 看日志；或 PowerShell 7 里 `pwsh scripts\start_debug.ps1`。双击垫片需要 PowerShell 7（`winget install Microsoft.PowerShell`）。
+3. PySide6 原生窗口自动弹出，关闭窗口即退出。
 4. 工作流：**③ 配置 → ① 分类计划（扫描/勾选）→ ② 执行 / 回滚（体检→执行）**；④ 体检页随时诊断。
 
 想先试玩：`python tools/make_demo_env.py` 生成 `demo/` 演示媒体库，然后
-`python -m app.main_gui --config demo/config.toml --port 8790 --no-browser`。
+`python -m app --demo --config demo/config.toml`（或 `python -m app.ui.main_window --demo`）。
 
 ## 分类决策链（多题材择优）
 
@@ -88,9 +87,7 @@ Program Files）则自动改用 `%APPDATA%\CineSort\config.toml`。
 
 ```
 app/
-  main_gui.py        启动入口（单实例锁 / 自动开浏览器）
-  server.py          本地 HTTP 服务 + JSON API
-  static/index.html  单页 GUI
+  ui/main_window.py  启动入口（PySide6 原生窗口 / 单实例锁）
   core/
     config.py        配置加载与校验
     nfo.py           NFO 解析（编码链/实体/命名空间/组合题材容错）
