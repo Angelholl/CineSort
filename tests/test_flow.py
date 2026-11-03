@@ -114,6 +114,24 @@ def test_undo_preview_rejects_bad_name(env_state):
         state.undo_preview("../../evil.jsonl")
 
 
+def test_preflight_job_reports_items(env_state):
+    """体检走后台任务（D-20261102-01 纪律 1）：结果在 job.result["items"]，
+    环境健康时无阻断。"""
+    state, _ = env_state
+    state.start_scan()
+    wait_job(state)
+    ids = [u["id"] for u in state.plan()["units"]]
+    state.start_preflight(ids)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    items = st["result"]["items"]
+    assert items, "体检至少应输出一项"
+    assert all(i["level"] in ("block", "warn", "info") for i in items)
+    assert all({"code", "message"} <= set(i) for i in items)
+    # 测试环境的目录全部存在，不应出现路径缺失阻断
+    assert all(i["code"] != "paths_missing" for i in items)
+
+
 def test_busy_error_on_concurrent_jobs(env_state):
     """任务运行中重复触发必须报错（桌面版按钮双击的前提）。"""
     state, _ = env_state

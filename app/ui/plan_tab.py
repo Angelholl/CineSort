@@ -1,0 +1,580 @@
+"""① 分类计划页：真数据版（Phase-0 样机毕业，接 AppState + PlanViewModel）。
+
+本层不做业务决策：勾选/筛选/改判/汇总全部在 app/ui/viewmodel.py，
+任务编排在 app/state.py 与 app/core/jobs.py；这里只做渲染与事件转发。
+state=None 时进入演示模式（假数据，任务按钮禁用），供样式走查与截图。
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..core.jobs import BusyError
+from ..core.planner import plan_digest
+from ..state import AppState
+from . import theme
+from .table_cells import (
+    COL_CHECK,
+    COL_CONF,
+    COL_FILES,
+    COL_LEVEL,
+    COL_LIB,
+    COL_SIZE,
+    COL_STATUS,
+    COL_TITLE,
+    CellDelegate,
+)
+from .viewmodel import (
+    PlanViewModel,
+    card_tones,
+    confidence_badge,
+    human_size,
+    level_badge,
+    status_badge,
+)
+
+
+class PlanTab(QWidget):
+    def __init__(self, state: AppState | None, units: list[dict] | None = None,
+                 toast=None, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.state = state
+        self.demo_units = units
+        self.toast = toast or (lambda msg: None)
+        self.vm: PlanViewModel | None = None
+        self._digest: str | None = None
+        self._rows: list[dict] = []
+        self._current_unit: dict | None = None
+        self._libs: list[str] = []
+        self._populating = True
+        self._await_preflight: list[str] | None = None   # 非 None 表示正在等体检结果
+        self._job_seen_running = False
+        self._last_job_id: str | None = None
+        self._build()
+        self.refresh(force=True)
+        if self.state is None:                           # 演示模式：任务按钮禁用
+            for b in (self.btn_scan, self.btn_apply):
+                b.setEnabled(False)
+                b.setToolTip("演示模式（假数据），不连接真实配置")
+
+    # ------------------------------------------------------------ 界面构建
+
+    def _build(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 14, 18, 14)
+        root.setSpacing(12)
+
+        self.cards_bar = QHBoxLayout()
+        self.cards_bar.setSpacing(10)
+        root.addLayout(self.cards_bar)
+
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
+        self._chips: dict[str, QPushButton] = {}
+        for key, text in (("all", "全部"), ("ready", "可执行"), ("rule", "规则"),
+                          ("plot", "摘要预判"), ("learned", "自学习"),
+                          ("fallback", "兜底"), ("blocked", "冲突/残留"),
+                          ("applied", "已执行")):
+            btn = QPushButton(text)
+            btn.setProperty("fchip", "on" if key == "all" else "off")
+            btn.clicked.connect(lambda _=False, k=key: self.set_filter(k))
+            self._chips[key] = btn
+            bar.addWidget(btn)
+        bar.addStretch(1)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索片名 / 题材 / 目标库")
+        self.search.setFixedWidth(250)
+        self.search.textChanged.connect(self.set_query)
+        bar.addWidget(self.search)
+        root.addLayout(bar)
+
+        self.empty_hint = QLabel("尚未扫描。配置好源目录与媒体库后，点右下角「重新扫描」。")
+        self.empty_hint.setProperty("dim", True)
+        self.empty_hint.hide()
+        root.addWidget(self.empty_hint)
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(
+            ["✓", "影片", "判定", "置信", "目标库", "文件", "体积", "状态"])
+        self.table.setItemDelegate(CellDelegate(self.table))
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)      # delegate 逐格填色，网格会露成列间竖缝
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.setWordWrap(False)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.Interactive)
+        hh.setSectionResizeMode(COL_TITLE, QHeaderView.Stretch)
+        for col, width in ((COL_CHECK, 40), (COL_LEVEL, 96), (COL_CONF, 62),
+                           (COL_LIB, 92), (COL_FILES, 62), (COL_SIZE, 92),
+                           (COL_STATUS, 110)):
+            self.table.setColumnWidth(col, width)
+        for col, align in ((COL_TITLE, Qt.AlignLeft), (COL_LEVEL, Qt.AlignLeft),
+                           (COL_LIB, Qt.AlignLeft), (COL_STATUS, Qt.AlignLeft),
+                           (COL_CONF, Qt.AlignRight), (COL_FILES, Qt.AlignRight),
+                           (COL_SIZE, Qt.AlignRight)):
+            head = self.table.horizontalHeaderItem(col)
+            if head:
+                head.setTextAlignment(align | Qt.AlignVCenter)
+        self.table.itemSelectionChanged.connect(self._show_detail)
+        self.table.itemChanged.connect(self._on_item_changed)
+        self.splitter.addWidget(self.table)
+        self.splitter.addWidget(self._detail_panel())
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([900, 360])
+        root.addWidget(self.splitter, 1)
+
+        bottom = QFrame()
+        bottom.setProperty("bottombar", True)
+        bl = QHBoxLayout(bottom)
+        bl.setContentsMargins(14, 8, 14, 8)
+        bl.setSpacing(10)
+        self.summary = QLabel("")
+        self.summary.setProperty("mini", True)
+        bl.addWidget(self.summary)
+        bl.addStretch(1)
+        self.btn_all = QPushButton("全选可执行")
+        self.btn_all.clicked.connect(self._select_ready)
+        self.btn_clear = QPushButton("清空选择")
+        self.btn_clear.clicked.connect(self._clear_selection)
+        self.btn_scan = QPushButton("重新扫描")
+        self.btn_scan.clicked.connect(self._start_scan)
+        self.btn_apply = QPushButton("执行选中")
+        self.btn_apply.setProperty("role", "primary")
+        self.btn_apply.clicked.connect(self._apply_selected)
+        for b in (self.btn_all, self.btn_clear, self.btn_scan, self.btn_apply):
+            bl.addWidget(b)
+        root.addWidget(bottom)
+
+    def _detail_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setProperty("panel", True)
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(8)
+
+        title = QLabel("选中行详情")
+        title.setProperty("sectionTitle", True)
+        lay.addWidget(title)
+        self.d_name = QLabel("（点选左侧任一行）")
+        self.d_name.setWordWrap(True)
+        lay.addWidget(self.d_name)
+        self.d_src = QLabel("")
+        self.d_src.setProperty("dim", True)
+        self.d_src.setWordWrap(True)
+        lay.addWidget(self.d_src)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(5)
+        self.d_fields: dict[str, QLabel] = {}
+        for row, (key, label) in enumerate((
+                ("level", "判定"), ("conf", "置信度"), ("lib", "当前目标库"),
+                ("files", "文件数"), ("size", "体积"), ("status", "状态"))):
+            lab = QLabel(label)
+            lab.setProperty("dim", True)
+            grid.addWidget(lab, row, 0)
+            if key in ("level", "status"):
+                w = QLabel("—")
+                # 空态不挂 badge 属性：否则未选中行时 "—" 外面套着描边空胶囊，
+                # 看着像有个空徽章（真数据核验 D 项）。选中后由 _set_badge 挂上。
+                w.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+            else:
+                w = QLabel("—")
+                w.setWordWrap(True)
+                w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            self.d_fields[key] = w
+            # 显式对齐：否则徽章的 Maximum 策略会让整列退化成"标签左/值右"
+            grid.addWidget(w, row, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        grid.setColumnStretch(1, 1)
+        lay.addLayout(grid)
+
+        ev = QLabel("判定依据")
+        ev.setProperty("sectionTitle", True)
+        lay.addSpacing(6)
+        lay.addWidget(ev)
+        self.d_evidence = QListWidget()
+        self.d_evidence.setMinimumHeight(72)
+        lay.addWidget(self.d_evidence)
+
+        lay.addSpacing(4)
+        ov = QLabel("改判目标库")
+        ov.setProperty("sectionTitle", True)
+        lay.addWidget(ov)
+        self.d_override = QComboBox()
+        self.d_override.currentTextChanged.connect(self._on_override_changed)
+        lay.addWidget(self.d_override)
+        hint = QLabel("改判记 2 票自学习；「执行选中」按改判后的目标库搬运。")
+        hint.setProperty("mini", True)
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+        return panel
+
+    # ------------------------------------------------------------ 数据刷新
+
+    def refresh(self, force: bool = False) -> None:
+        """慢 tick / 任务完成后的全量刷新。勾选与改判挂在 id 上，重建不丢。
+
+        计划未变（digest 相同）时直接返回——慢 tick 每 2s 调一次，
+        重建 5000 行表格既浪费也会重置滚动位置。
+        """
+        if self.state is None:                        # 演示模式：只建一次
+            if self.vm is not None and not force:
+                return
+            self.vm = PlanViewModel(self.demo_units or [])
+        else:
+            plan = self.state.plan()
+            digest = plan_digest(plan) if plan else None
+            if not force and digest == self._digest:
+                return
+            self.vm = PlanViewModel(plan["units"] if plan else [])
+            self._digest = digest
+        self._rebuild_cards()
+        self._rebuild_table()
+        self.empty_hint.setVisible(not self.vm.stats()["total"])
+        self._update_summary()
+
+    def _rebuild_cards(self) -> None:
+        while self.cards_bar.count():
+            item = self.cards_bar.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        # 配色决策在 viewmodel.card_tones（可单测），本层只渲染
+        for value, label, tone in card_tones(self.vm.stats()):
+            frame = QFrame()
+            frame.setProperty("card", True)
+            lay = QVBoxLayout(frame)
+            lay.setContentsMargins(14, 8, 14, 8)
+            lay.setSpacing(1)
+            v = QLabel(value)
+            v.setProperty("cardValue", tone)
+            t = QLabel(label)
+            t.setProperty("cardLabel", True)
+            lay.addWidget(v)
+            lay.addWidget(t)
+            self.cards_bar.addWidget(frame)
+        self.cards_bar.addStretch(1)
+
+    def _rebuild_table(self) -> None:
+        self._rows = self.vm.rows()
+        self._populating = True
+        self.table.setUpdatesEnabled(False)
+        self.table.setRowCount(len(self._rows))
+        for r, u in enumerate(self._rows):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+            chk.setCheckState(Qt.Checked if u["id"] in self.vm.checked else Qt.Unchecked)
+            chk.setData(Qt.UserRole, u["id"])
+            self.table.setItem(r, COL_CHECK, chk)
+
+            it = QTableWidgetItem(u["label"])
+            if u["status"] not in ("ready", "applied"):
+                it.setForeground(QColor(theme.FB))
+            self.table.setItem(r, COL_TITLE, it)
+
+            text, badge = level_badge(u)
+            item = QTableWidgetItem(text)
+            item.setData(Qt.UserRole, badge)
+            self.table.setItem(r, COL_LEVEL, item)
+
+            ctext, ctone = confidence_badge(u)
+            item = QTableWidgetItem(ctext)
+            item.setData(Qt.UserRole, ctone)
+            item.setToolTip(f"置信等级：{u.get('confidence') or '—'}")
+            self.table.setItem(r, COL_CONF, item)
+
+            overridden = u["id"] in self.vm.overrides
+            lib = QTableWidgetItem(self.vm.effective_target_lib(u)
+                                   + (" *" if overridden else ""))
+            lib.setForeground(QColor(theme.ACC if overridden else theme.DIM))
+            if overridden:
+                lib.setToolTip("目标库由人工指定")
+            self.table.setItem(r, COL_LIB, lib)
+
+            self.table.setItem(r, COL_FILES, QTableWidgetItem(str(u["file_count"])))
+            self.table.setItem(r, COL_SIZE, QTableWidgetItem(human_size(u["total_size"])))
+
+            text, badge = status_badge(u)
+            item = QTableWidgetItem(text)
+            item.setData(Qt.UserRole, badge)
+            self.table.setItem(r, COL_STATUS, item)
+        self.table.setUpdatesEnabled(True)
+        self._populating = False
+
+    # ------------------------------------------------------------ 任务联动
+
+    def on_job_tick(self, snap: dict | None) -> None:
+        """快 tick（约 300ms）转发：只读 job.snapshot()，不碰磁盘（纪律 3）。"""
+        if snap and snap["status"] == "running":
+            self._job_seen_running = True
+            self._set_busy(True)
+            return
+        self._set_busy(False)
+        if snap and self._job_seen_running and snap.get("id") != self._last_job_id:
+            self._last_job_id = snap.get("id")
+            self._job_seen_running = False
+            self._on_job_finished(snap)
+
+    def _set_busy(self, busy: bool) -> None:
+        for b in (self.btn_scan, self.btn_apply, self.btn_all, self.btn_clear):
+            b.setEnabled(not busy and self.state is not None)
+
+    def _on_job_finished(self, snap: dict) -> None:
+        kind, status = snap.get("kind"), snap.get("status")
+        if kind in ("scan", "apply", "undo"):
+            self.refresh(force=True)
+        if kind == "preflight" and self._await_preflight is not None:
+            ids, self._await_preflight = self._await_preflight, None
+            if status != "done":
+                self.toast(f"体检失败：{snap.get('error') or '未知错误'}")
+                return
+            self._after_preflight(ids, (snap.get("result") or {}).get("items") or [])
+
+    def _start_scan(self) -> None:
+        if self.state is None:
+            return
+        try:
+            self.state.start_scan()
+            self._job_seen_running = True
+            self.toast("扫描已开始（只读预览，不碰文件）")
+        except BusyError as exc:
+            self.toast(str(exc))
+
+    def _apply_selected(self) -> None:
+        if self.state is None:
+            return
+        ids = self.vm.checked_ids()
+        if not ids:
+            self.toast("未勾选任何影片")
+            return
+        bad = self.vm.checked_not_ready()
+        if bad:
+            self.toast(f"有 {len(bad)} 部不可执行（冲突/残留），请先处理或取消勾选")
+            return
+        try:
+            self.state.start_preflight(ids)
+            self._await_preflight = ids
+            self._job_seen_running = True
+            self.toast("执行前体检中…（Jellyfin 进程 / 磁盘空间 / staging 残留）")
+        except BusyError as exc:
+            self.toast(str(exc))
+
+    def _after_preflight(self, ids: list[str], items: list[dict]) -> None:
+        blocks = [i for i in items if i["level"] == "block"]
+        overrides = dict(self.vm.overrides)
+        if not blocks:
+            self._start_apply(ids, set(), overrides)
+            return
+        acks = BlockConfirmDialog(blocks, self).acked_codes()
+        if acks is None:
+            self.toast("已取消执行（预检未通过）")
+            return
+        self._start_apply(ids, acks, overrides)
+
+    def _start_apply(self, ids: list[str], acks: set[str],
+                     overrides: dict[str, str]) -> None:
+        try:
+            self.state.start_apply(ids, acks, overrides)
+            self._job_seen_running = True
+            self.toast(f"已开始搬运 {len(ids)} 部影片，进度见「② 执行 / 回滚」")
+        except BusyError as exc:
+            self.toast(str(exc))
+
+    # ------------------------------------------------------------ 交互
+
+    def set_filter(self, key: str) -> None:
+        self.vm.set_filter(key)
+        for k, btn in self._chips.items():
+            btn.setProperty("fchip", "on" if k == key else "off")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self._rebuild_table()
+        self._update_summary()
+
+    def set_query(self, text: str) -> None:
+        self.vm.set_query(text)
+        self._rebuild_table()
+        self._update_summary()
+
+    def _select_ready(self) -> None:
+        self.vm.select_visible_ready()
+        self._sync_checkmarks()
+        self._update_summary()
+
+    def _clear_selection(self) -> None:
+        self.vm.clear_selection()
+        self._sync_checkmarks()
+        self._update_summary()
+
+    def _sync_checkmarks(self) -> None:
+        """勾选状态以 vm 为真值源回写表格（筛选后行号与 id 不再一一对应）。"""
+        self._populating = True
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, COL_CHECK)
+            uid = it.data(Qt.UserRole)
+            it.setCheckState(Qt.Checked if uid in self.vm.checked else Qt.Unchecked)
+        self._populating = False
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._populating or item.column() != COL_CHECK:
+            return
+        uid = item.data(Qt.UserRole)
+        if uid:
+            self.vm.set_checked(uid, item.checkState() == Qt.Checked)
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        checked = self.vm.checked_ids()
+        self.summary.setText(
+            f"已选 {len(checked):,} 部 · 合计 {human_size(self.vm.checked_bytes())}"
+            f" · 列表 {len(self._rows):,} 行 / 共 {self.vm.stats()['total']:,} 部")
+        self.btn_apply.setText(f"执行选中（{len(checked):,}）")
+
+    def _show_detail(self) -> None:
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._rows):
+            return
+        u = self._current_unit = self._rows[row]
+        self.d_name.setText(u["label"])
+        self.d_src.setText(u["src"])
+        text, badge = level_badge(u)
+        self._set_badge("level", text, badge)
+        ctext, ctone = confidence_badge(u)
+        self._set_badge("conf", ctext, ctone)
+        self.d_fields["lib"].setText(self.vm.effective_target_lib(u))
+        self.d_fields["files"].setText(str(u["file_count"]))
+        self.d_fields["size"].setText(human_size(u["total_size"]))
+        text, badge = status_badge(u)
+        self._set_badge("status", text, badge)
+        self.d_evidence.clear()
+        for e in u.get("evidence") or ():
+            self.d_evidence.addItem(QListWidgetItem(e))
+        for note in u.get("notes") or ():
+            self.d_evidence.addItem(QListWidgetItem("⚠ " + note))
+        self.d_override.blockSignals(True)     # 重建下拉期间不触发改判
+        self._fill_libs()
+        self.d_override.setCurrentText(self.vm.overrides.get(u["id"]) or "（不改判）")
+        self.d_override.blockSignals(False)
+
+    def _set_badge(self, key: str, text: str, badge: str) -> None:
+        w = self.d_fields[key]
+        w.setText(text)
+        w.setProperty("badge", badge)
+        w.style().unpolish(w)
+        w.style().polish(w)
+
+    def _fill_libs(self) -> None:
+        libs = sorted({unit["target_lib"] for unit in self._rows} - {"兜底库"})
+        if libs != self._libs:
+            self._libs = libs
+            self.d_override.clear()
+            self.d_override.addItems(["（不改判）"] + libs + ["兜底库"])
+
+    def _on_override_changed(self, text: str) -> None:
+        u = self._current_unit
+        if u is None:
+            return
+        self.vm.set_override(u["id"], None if text.startswith("（不改判）") else text)
+        overridden = u["id"] in self.vm.overrides
+        row = next((r for r, unit in enumerate(self._rows)
+                    if unit["id"] == u["id"]), -1)
+        if row >= 0:
+            lib_item = self.table.item(row, COL_LIB)
+            if lib_item:
+                lib_item.setText(self.vm.effective_target_lib(u)
+                                 + (" *" if overridden else ""))
+                lib_item.setForeground(QColor(theme.ACC if overridden else theme.DIM))
+        self.d_fields["lib"].setText(self.vm.effective_target_lib(u))
+
+
+class BlockConfirmDialog(QDialog):
+    """预检阻断确认：与网页版「二次确认越过阻断项」同语义。
+
+    非 ackable（paths_missing）不可越过 → 直接禁用继续按钮；
+    ackable 每项一个独立勾选，全部勾上才允许继续。
+    """
+
+    NON_ACKABLE = frozenset({"paths_missing"})
+
+    def __init__(self, blocks: list[dict], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("执行前体检未通过")
+        self.setModal(True)
+        self.resize(560, 300)
+        lay = QVBoxLayout(self)
+        head = QLabel("以下阻断项需要你逐项确认后才能执行：")
+        head.setProperty("sectionTitle", True)
+        lay.addWidget(head)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        self._boxes: list[tuple[str, QCheckBox]] = []
+        self._fatal = False
+        for b in blocks:
+            code = b.get("code", "")
+            box = QCheckBox(b.get("message", code))
+            detail = "；".join(str(d) for d in b.get("detail") or [])
+            if detail:
+                box.setToolTip(detail)
+            if code in self.NON_ACKABLE:
+                box.setText(f"【不可越过，请修正配置】{b.get('message', code)}")
+                box.setEnabled(False)
+                self._fatal = True
+            else:
+                self._boxes.append((code, box))
+            bl.addWidget(box)
+        bl.addStretch(1)
+        scroll.setWidget(body)
+        lay.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Ok).setText("确认并执行")
+        buttons.button(QDialogButtonBox.Ok).setProperty("role", "primary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        self._ok = buttons.button(QDialogButtonBox.Ok)
+        for _code, box in self._boxes:
+            box.toggled.connect(self._sync)
+        self._sync()
+
+    def _sync(self) -> None:
+        self._ok.setEnabled(bool(self._boxes) and not self._fatal
+                            and all(box.isChecked() for _c, box in self._boxes))
+
+    def acked_codes(self) -> set[str] | None:
+        """模态弹出；接受 → 已确认的阻断码集合，取消 → None。"""
+        if self.exec() != QDialog.Accepted:
+            return None
+        return {code for code, box in self._boxes if box.isChecked()}

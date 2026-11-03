@@ -99,6 +99,13 @@ class AppState:
         self.jobs.start("undo", lambda job: jobs_mod.run_undo(self, job, fname))
         return {"ok": True}
 
+    def start_preflight(self, ids: list[str]) -> dict:
+        """后台体检。结果（含阻断项清单）在 job.result["items"]，
+        由调用方在任务完成后读取——不得在 UI 线程同步调用 preflight_items。"""
+        self.jobs.start("preflight",
+                        lambda job: jobs_mod.run_preflight(self, job, list(ids)))
+        return {"ok": True}
+
     def cancel_job(self) -> bool:
         return self.jobs.cancel()
 

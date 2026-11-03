@@ -254,3 +254,54 @@ def test_human_size_tiers():
     assert vm.human_size(1024 ** 3) == "1.0 GB"
     assert vm.human_size(83_708.4 * 1024 ** 3) == "81.75 TB"   # 回归：曾显示 83708.4 GB
     assert vm.human_size(2 * 1024 ** 4) == "2.00 TB"
+    # 回归：demo/小文件环境曾显示「0 MB」
+    assert vm.human_size(20_015) == "19.5 KB"
+    assert vm.human_size(1024) == "1.0 KB"
+
+
+# ---------------------------------------------------------------- 卡片配色
+
+def test_card_tones_zero_metrics_are_never_alert_colored():
+    """红色 0 / 橙色 0 是空警讯（真数据核验备注）。"""
+    stats = {"total": 0, "ready": 0, "rule": 0, "plot": 0, "learned": 0,
+             "fallback": 0, "blocked": 0, "applied": 0, "fallback_ratio": 0.0}
+    tones = {label: tone for _v, label, tone in vm.card_tones(stats)}
+    assert tones["需人工处理"] == "dim"
+    assert tones["兜底"] == "dim"
+    assert tones["可执行"] == "dim"
+    assert tones["自学习"] == "dim"
+    assert tones["摘要预判"] == "dim"
+
+
+def test_card_tones_nonzero_keep_semantic_colors(units):
+    tones = {label: tone for _v, label, tone in vm.card_tones(
+        vm.PlanViewModel(units).stats())}
+    assert tones["可执行"] == "ok"
+    assert tones["摘要预判"] == "plot"
+    assert tones["自学习"] == "learned"
+    assert tones["需人工处理"] == "bad"
+    assert tones["影片单元"] == "dim"
+    assert tones["规则判定"] == "dim"
+
+
+def test_card_tones_fallback_alert_only_above_threshold():
+    """兜底卡只在占比 > 0.15 时染橙：演示 9% 白、真扫 33% 橙，两版都对。"""
+    def tones_for(fallback: int, total: int) -> str:
+        stats = {"total": total, "ready": 0, "rule": 0, "plot": 0, "learned": 0,
+                 "fallback": fallback, "blocked": 0, "applied": 0,
+                 "fallback_ratio": fallback / total}
+        return {label: tone for _v, label, tone in vm.card_tones(stats)}["兜底"]
+
+    assert tones_for(456, 5000) == "dim"      # 9% → 白（pilot 基线）
+    assert tones_for(2, 6) == "warn"          # 33% → 橙（demo 真扫描）
+    assert tones_for(15, 100) == "dim"        # 恰在阈值上 → 白
+    assert tones_for(16, 100) == "warn"       # 越过阈值 → 橙
+
+
+def test_card_tones_shape_matches_seven_cards(units):
+    rows = vm.card_tones(vm.PlanViewModel(units).stats())
+    assert len(rows) == 7
+    assert all(len(r) == 3 for r in rows)
+    assert [label for _v, label, _t in rows] == [
+        "影片单元", "可执行", "规则判定", "摘要预判", "自学习", "兜底", "需人工处理"]
+    assert rows[0][0] == "6" and rows[1][0] == "4"      # 千分位前的小数值

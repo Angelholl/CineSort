@@ -11,8 +11,15 @@ from . import learned as learned_store
 from . import scanner as scanner_mod
 from .config import load_config
 from .journal import Journal, done_entries, is_valid_session_name
-from .planner import (READY, build_plan, check_plan_freshness, load_plan,
-                      mark_applied, mark_undone, save_plan)
+from .planner import (
+    READY,
+    build_plan,
+    check_plan_freshness,
+    load_plan,
+    mark_applied,
+    mark_undone,
+    save_plan,
+)
 
 
 class BusyError(RuntimeError):
@@ -89,6 +96,22 @@ def _src_dir(unit: dict) -> str:
     if unit["kind"] == "file":
         return str(Path(unit["src"]).parent)
     return str(Path(unit["src"]))
+
+
+def run_preflight(state, job: Job, ids: list[str]) -> None:
+    """体检任务：run_preflight 必须离开 UI/HTTP 请求线程——内部有
+    tasklist 子进程（最长 15s）+ 磁盘空间探测 + staging 目录遍历，
+    同步调用会把界面冻住（D-20261102-01 纪律 1）。"""
+    cfg = load_config(state.config_path)
+    plan = load_plan(cfg.runtime_dir)
+    job.label = "执行前体检"
+    job.log("开始执行前体检（Jellyfin 进程 / 磁盘空间 / staging 残留…）")
+    items = preflight.run_preflight(cfg, plan, selected_ids=set(ids) or None)
+    blocks = [i for i in items if i["level"] == "block"]
+    warns = [i for i in items if i["level"] == "warn"]
+    job.result = {"items": items, "ids": sorted(ids)}
+    job.log(f"体检完成：{len(items)} 项"
+            f"（阻断 {len(blocks)} / 警告 {len(warns)} / 提示 {len(items) - len(blocks) - len(warns)}）")
 
 
 def run_scan(state, job: Job) -> None:

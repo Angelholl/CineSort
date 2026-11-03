@@ -54,14 +54,37 @@ def confidence_badge(unit: dict) -> tuple[str, str]:
 
 def human_size(nbytes: int) -> str:
     """体积可读化。必须有 TB 档：整库规模轻松破 1000 GB，只到 GB
-    会写出「83708.4 GB」这种没法读的数字。"""
+    会写出「83708.4 GB」这种没法读的数字；也要有 KB 档，否则演示/小文件
+    环境会显示「0 MB」。"""
     if nbytes <= 0:
         return "—"
     if nbytes >= 1024 ** 4:
         return f"{nbytes / 1024 ** 4:,.2f} TB"
     if nbytes >= 1024 ** 3:
         return f"{nbytes / 1024 ** 3:,.1f} GB"
-    return f"{nbytes / 1024 ** 2:,.0f} MB"
+    if nbytes >= 1024 ** 2:
+        return f"{nbytes / 1024 ** 2:,.0f} MB"
+    return f"{nbytes / 1024:,.1f} KB"
+
+
+def card_tones(stats: dict) -> list[tuple[str, str, str]]:
+    """统计卡片的 (数值文本, 标签, 着色键)。
+
+    着色只给"有动作含义"的指标（Phase-0 目验 P1-2）；指标为 0 时一律降为
+    正文色——红色 0 是空警讯（真数据核验备注）。
+    """
+    fallback_tone = "warn" if stats["fallback_ratio"] > 0.15 else "dim"
+    rows = (
+        (stats["total"], "影片单元", "dim"),
+        (stats["ready"], "可执行", "ok"),
+        (stats["rule"], "规则判定", "dim"),
+        (stats["plot"], "摘要预判", "plot"),
+        (stats["learned"], "自学习", "learned"),
+        (stats["fallback"], "兜底", fallback_tone),
+        (stats["blocked"], "需人工处理", "bad"),
+    )
+    return [(f"{v:,}", label, tone if v else "dim")
+            for v, label, tone in rows]
 
 
 class PlanViewModel:
