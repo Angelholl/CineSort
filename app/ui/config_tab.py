@@ -248,6 +248,8 @@ class ConfigTab(QWidget):
                 f"当前配置无效，展示的是兜底值，保存前请先修正：\n{err}")
             self.cfg_msg.setStyleSheet(f"color:{theme.BAD};")
             self.cfg_msg.show()
+        else:
+            self.cfg_msg.hide()   # 配置已恢复有效（如外部修正），横幅随之消失
         if force or not self._dirty:
             self._fill_form(desc or {})
         learned = (self.state.state_snapshot() or {}).get("learned") or []
