@@ -116,3 +116,11 @@
 - 删除面：app/server.py、app/main_gui.py、app/static/index.html、tests/test_api.py、JellyfinNFOSorter.spec（后者 *.spec 被 .gitignore 忽略从未跟踪，磁盘 rm；CineSort.spec 同属 ignore 磁盘维护 datas，不入库——spec 文件版本控制缺失为既有事实）。
 - 全量测试基线：131（C2 后）→ 165（C6 后）。GUI 已验证：offscreen 截图（100%/150%）+ 视图逻辑单测 + .cmd 同链真启动冒烟。
 - 遗留延后项：QTableWidget 样板三处重复（UI 打磨卡）；会话表 2s 全量重渲选中态保持；③ 页配置横幅/④ 页空态提示等小瑕疵已验收期修；安装包链（onedir + Inno Setup + CI）未启动。
+
+## D-20261104-02 v0.5.0 发版：链路迁移与三轮 CI 排障（owner 令"push发版"）
+- 发版链迁移（C7 卡，b40bca7）：onefile stdlib 老链（引用已删除的 app\static，CI 必红）→ PySide6==6.12.0 + onedir + ISCC 安装版；解释器探测第 3 例固化 scripts/_pyside_probe.ps1（start_gui/start_debug/build_exe 共用）；版本 0.4.0→0.5.0。
+- Run#2 失败：空壳校验 40MB 阈值系未实测拍脑袋——本地 lzma2（xz preset6）实证 122MB onedir 压缩后仅 33.3MB。修正为分层断言：安装包 ≥20MB（10 倍余量）+ 启动器 ≥1.5MB + onedir ≥80MB（与压缩率解耦）。**教训：断言阈值必须先本地实证再写进卡面。**
+- Run#3 失败：打包/校验/SHA256/上传全过，发布 Release 403——新仓库 GITHUB_TOKEN 默认只读，工作流缺 permissions 块。补 `permissions: contents: write`。
+- Run#4 success：Release v0.5.0 发布 CineSort-setup-0.5.0.exe（33.7MB）+ SHA256SUMS.txt。
+- 远程 tag 重打流程：删远程 tag → 修 yml → 同名 tag 重推触发新 run（无发布产物的失败 tag 可安全重打）。
+- gh CLI 本机不可用：CI 状态经 GitHub 公共 API（actions/runs、jobs、releases/latest）步骤级定位，无需认证。
