@@ -156,6 +156,8 @@ class ExecTab(QWidget):
             self._last_job_id = snap.get("id")
             self._job_seen_running = False
             self._on_job_finished(snap)
+            # 会话清单不在快 tick 刷新（纪律 3：快 tick 只读内存），
+            # 慢 tick ≤2s 内自然拉到新会话。
 
     def _show_running(self, snap: dict) -> None:
         kind = str(snap.get("kind", ""))
@@ -171,17 +173,16 @@ class ExecTab(QWidget):
         self._refresh_log(snap)
 
     def _on_job_finished(self, snap: dict) -> None:
-        kind, status = snap.get("kind"), snap.get("status")
-        result = snap.get("result") or {}
         self._refresh_log(snap)
         self.bar.setValue(self.bar.maximum())
-        self._set_tone("failed" if status == "failed" else "done")
+        self._set_tone("failed" if snap.get("status") == "failed" else "done")
         self.btn_cancel.setEnabled(False)
         self.job_label.setText("空闲")
-        self.result_label.setText(self._result_text(kind, status, result, snap))
-        self.refresh_sessions()
+        self.result_label.setText(self._result_text(snap))
 
-    def _result_text(self, kind, status, result: dict, snap: dict) -> str:
+    def _result_text(self, snap: dict) -> str:
+        kind, status = snap.get("kind"), snap.get("status")
+        result = snap.get("result") or {}
         lines: list[str] = []
         if status == "failed":
             return (f'<span style="color:{theme.BAD}">'
@@ -230,9 +231,8 @@ class ExecTab(QWidget):
 
     # ------------------------------------------------------------ 会话清单
 
-    def refresh_sessions(self, force: bool = False) -> None:
-        """会话清单渲染（唯一允许调 state.sessions() 的地方；慢活）。"""
-        del force                                    # 每次全量重渲即可
+    def refresh_sessions(self) -> None:
+        """会话清单渲染（唯一允许调 state.sessions() 的地方；慢活，仅慢 tick 调）。"""
         self._session_rows = []
         self.session_table.setRowCount(0)
         if self.state is None:
@@ -286,9 +286,9 @@ class ExecTab(QWidget):
 
 
 class UndoPreviewDialog(QDialog):
-    def __init__(self, ops: list[dict], file: str, parent=None):
+    def __init__(self, ops: list[dict], fname: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"回滚预览：{file}")
+        self.setWindowTitle(f"回滚预览：{fname}")
         self.setMinimumWidth(720)
         self._armed = False
 
