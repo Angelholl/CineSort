@@ -258,5 +258,5 @@ def test_main_window_static_wiring():
     assert "ConfigTab(" in src
     assert '"③ 配置"' in src
     assert "self.config_tab.refresh" in src           # 慢 tick 喂配置页
-    assert '("④ 体检",)' in src                       # 剩余占位循环
+    assert '"④ 体检"' in src                          # C5：占位循环已换成 DoctorTab
     assert "from .config_tab import ConfigTab" in src

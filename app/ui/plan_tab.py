@@ -522,7 +522,7 @@ class BlockConfirmDialog(QDialog):
     ackable 每项一个独立勾选，全部勾上才允许继续。
     """
 
-    NON_ACKABLE = frozenset({"paths_missing"})
+    NON_ACKABLE = frozenset({"paths_missing", "disk_space", "staging_leftover"})
 
     def __init__(self, blocks: list[dict], parent: QWidget | None = None):
         super().__init__(parent)
@@ -548,7 +548,11 @@ class BlockConfirmDialog(QDialog):
             if detail:
                 box.setToolTip(detail)
             if code in self.NON_ACKABLE:
-                box.setText(f"【不可越过，请修正配置】{b.get('message', code)}")
+                if code == "staging_leftover":
+                    box.setText(f"【不可越过，可在 ④ 体检页一键清理】"
+                                f"{b.get('message', code)}")
+                else:
+                    box.setText(f"【不可越过，请修正配置】{b.get('message', code)}")
                 box.setEnabled(False)
                 self._fatal = True
             else:

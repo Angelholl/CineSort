@@ -126,6 +126,26 @@ def test_block_dialog_gate_semantics(qapp):
     assert dlg2._fatal is True
     assert dlg2._ok.isEnabled() is False      # 不可越过的阻断直接禁用执行
 
+    # 新白名单（C5）：disk_space / staging_leftover 同为硬阻断不可勾，
+    # jellyfin_running / fallback_ratio 仍可勾越过
+    mixed = [
+        {"level": "block", "code": "disk_space", "message": "磁盘空间不足",
+         "detail": []},
+        {"level": "warn", "code": "staging_leftover", "message": "发现半成品残留",
+         "detail": [".incomplete-x"]},
+        {"level": "warn", "code": "fallback_ratio", "message": "兜底占比过高",
+         "detail": []},
+    ] + ackable
+    dlg3 = BlockConfirmDialog(mixed)
+    assert dlg3._fatal is True
+    boxes = dict(dlg3._boxes)
+    assert "disk_space" not in boxes and "staging_leftover" not in boxes
+    assert "jellyfin_running" in boxes and "fallback_ratio" in boxes
+    fatal_texts = [b.text() for b in dlg3.findChildren(type(dlg3._boxes[0][1]))
+                   if not b.isEnabled()]
+    assert any("④ 体检页一键清理" in t for t in fatal_texts)
+    assert dlg3._ok.isEnabled() is False
+
 
 def test_main_window_demo_builds_and_closes(qapp):
     win = MainWindow(None, demo_units=fake_units(20, seed=3))

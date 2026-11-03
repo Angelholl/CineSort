@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -26,6 +26,7 @@ from .. import __version__
 from ..state import AppState
 from . import theme
 from .config_tab import ConfigTab
+from .doctor_tab import DoctorTab
 from .exec_tab import ExecTab
 from .plan_tab import PlanTab
 
@@ -90,14 +91,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.exec_tab, "② 执行 / 回滚")
         self.config_tab = ConfigTab(self.state, toast=self.toast)
         self.tabs.addTab(self.config_tab, "③ 配置")
-        for name in ("④ 体检",):
-            ph = QWidget()
-            pl = QVBoxLayout(ph)
-            tip = QLabel(f"{name} —— 下一张卡实现（Phase-0 门禁已过）")
-            tip.setProperty("dim", True)
-            tip.setAlignment(Qt.AlignCenter)
-            pl.addWidget(tip)
-            self.tabs.addTab(ph, name)
+        self.doctor_tab = DoctorTab(self.state, toast=self.toast)
+        self.tabs.addTab(self.doctor_tab, "④ 体检")
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(18, 10, 18, 0)
@@ -117,6 +112,7 @@ class MainWindow(QMainWindow):
         snap = self.state.job_snapshot()
         self.plan_tab.on_job_tick(snap)
         self.exec_tab.on_job_tick(snap)
+        self.doctor_tab.on_job_tick(snap)
         running = bool(snap and snap["status"] == "running")
         if running:
             label = (snap.get("label") or "").strip()
