@@ -129,6 +129,13 @@ QListWidget::item {{ padding:3px 6px; border-bottom:1px solid {LINE}; }}
 QPlainTextEdit[log] {{ background:{LOG_BG}; border:1px solid {LINE};
   border-radius:8px; font-family:{MONO_FAMILY}; font-size:9.5pt; }}
 
+/* ---------- 进度条 ---------- */
+QProgressBar {{ background:{PANEL2}; border:1px solid {LINE}; border-radius:99px;
+  height:10px; text-align:center; color:{DIM}; font-size:9pt; }}
+QProgressBar::chunk {{ background:{ACC}; border-radius:99px; }}
+QProgressBar[tone="done"]::chunk {{ background:{OK}; }}
+QProgressBar[tone="failed"]::chunk {{ background:{BAD}; }}
+
 /* ---------- 标签页 ---------- */
 QTabWidget::pane {{ border:1px solid {LINE}; border-radius:10px;
   background:{BG}; top:-1px; }}

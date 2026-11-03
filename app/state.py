@@ -109,6 +109,10 @@ class AppState:
     def cancel_job(self) -> bool:
         return self.jobs.cancel()
 
+    def sessions(self) -> list[dict]:
+        """回滚会话清单（慢活：读 journals 目录，只允许在慢 tick 调用）。"""
+        return list_sessions(self.runtime_dir() / "journals")
+
     def undo_preview(self, fname: str) -> dict:
         if not is_valid_session_name(fname):
             raise ValueError("非法的会话文件名")

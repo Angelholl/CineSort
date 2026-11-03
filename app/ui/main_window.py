@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..state import AppState
 from . import theme
+from .exec_tab import ExecTab
 from .plan_tab import PlanTab
 
 FAST_MS = 300
@@ -49,7 +50,7 @@ class MainWindow(QMainWindow):
             self._fast.start()
         self._slow = QTimer(self)
         self._slow.setInterval(SLOW_MS)
-        self._slow.timeout.connect(lambda: self.plan_tab.refresh())
+        self._slow.timeout.connect(self._slow_tick)
         if state is not None:
             self._slow.start()
 
@@ -79,32 +80,39 @@ class MainWindow(QMainWindow):
             hl.addWidget(cfg)
         outer.addWidget(header)
 
-        tabs = QTabWidget()
+        self.tabs = QTabWidget()
         self.plan_tab = PlanTab(self.state,
                                 self._demo_units if self.state is None else None,
                                 toast=self.toast)
-        tabs.addTab(self.plan_tab, "① 分类计划")
-        for name in ("② 执行 / 回滚", "③ 配置", "④ 体检"):
+        self.tabs.addTab(self.plan_tab, "① 分类计划")
+        self.exec_tab = ExecTab(self.state, toast=self.toast)
+        self.tabs.addTab(self.exec_tab, "② 执行 / 回滚")
+        for name in ("③ 配置", "④ 体检"):
             ph = QWidget()
             pl = QVBoxLayout(ph)
             tip = QLabel(f"{name} —— 下一张卡实现（Phase-0 门禁已过）")
             tip.setProperty("dim", True)
             tip.setAlignment(Qt.AlignCenter)
             pl.addWidget(tip)
-            tabs.addTab(ph, name)
+            self.tabs.addTab(ph, name)
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(18, 10, 18, 0)
-        wl.addWidget(tabs)
+        wl.addWidget(self.tabs)
         outer.addWidget(wrap, 1)
         self.setCentralWidget(central)
         self.statusBar().showMessage("")
 
     # ------------------------------------------------------------ tick
 
+    def _slow_tick(self) -> None:
+        self.plan_tab.refresh()
+        self.exec_tab.refresh_sessions()
+
     def _fast_tick(self) -> None:
         snap = self.state.job_snapshot()
         self.plan_tab.on_job_tick(snap)
+        self.exec_tab.on_job_tick(snap)
         running = bool(snap and snap["status"] == "running")
         if running:
             label = (snap.get("label") or "").strip()
@@ -157,6 +165,7 @@ def main(argv=None) -> int:
     parser.add_argument("--screenshot", default=None)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=800)
+    parser.add_argument("--tab", type=int, default=0, help="启动后选中的标签页索引")
     args = parser.parse_args(argv)
 
     if args.scale != 1.0:
@@ -193,6 +202,8 @@ def main(argv=None) -> int:
             # 回调内的异常会被 Qt 吞掉且不退出事件循环——表现为静默挂死，
             # 必须自己兜住并显式退出。
             try:
+                if args.tab:
+                    win.tabs.setCurrentIndex(args.tab)
                 app.processEvents()
                 if not win.grab().save(str(out)):
                     raise RuntimeError(f"截图保存失败：{out}")
