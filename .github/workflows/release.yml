@@ -56,10 +56,19 @@ jobs:
 
       - name: 校验安装包非空壳
         run: |
+          # 阈值依据：122MB Qt onedir 经 lzma2 实测压缩约 33MB（本地 xz preset6 实证），
+          # 纯 stdlib 安装包仅 ~2-3MB —— 20MB 下限以 10 倍余量拦空壳；
+          # onedir 目录完整性另设独立断言，不与压缩率耦合。
           $f = "installer/Output/CineSort-setup-$($env:VERSION).exe"
           $item = Get-Item $f
           "{0}  {1:N0} bytes" -f $item.Name, $item.Length
-          if ($item.Length -lt 40MB) { throw "installer too small (<40MB): $($item.Length)" }
+          if ($item.Length -lt 20MB) { throw "installer too small (<20MB): $($item.Length)" }
+          $exe = Get-Item "dist/CineSort/CineSort.exe"
+          if ($exe.Length -lt 1.5MB) { throw "launcher exe too small: $($exe.Length)" }
+          $onedir = (Get-ChildItem "dist/CineSort" -Recurse -File |
+                     Measure-Object Length -Sum).Sum
+          "onedir total {0:N0} bytes" -f $onedir
+          if ($onedir -lt 80MB) { throw "onedir incomplete (<80MB): $($onedir)" }
         env:
           VERSION: ${{ steps.ver.outputs.version }}
 
