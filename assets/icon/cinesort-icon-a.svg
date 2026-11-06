@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- CineSort 应用图标 · 方向 A「入架」二元色修订版
+       仅两色：更白浅底 #F8FAFC / 墨色 #2C2F36（深灰偏黑） -->
+  <rect width="256" height="256" rx="56" fill="#F8FAFC"/>
+
+  <!-- 书架单元（描边） -->
+  <rect x="44.5" y="60.5" width="167" height="147" rx="12" fill="none" stroke="#2C2F36" stroke-width="5"/>
+  <!-- 层板 -->
+  <rect x="46" y="136" width="164" height="7" rx="3.5" fill="#2C2F36"/>
+
+  <!-- 顶排格位题材标签 -->
+  <rect x="58" y="74" width="30" height="9" rx="4.5" fill="#2C2F36"/>
+  <rect x="150" y="74" width="30" height="9" rx="4.5" fill="#2C2F36" opacity=".55"/>
+  <!-- 顶排右侧已归位书 -->
+  <rect x="150" y="90" width="26" height="46" rx="5" fill="#2C2F36"/>
+
+  <!-- 主角书：-18° 滑入空格，书脊带胶片齿孔 -->
+  <g transform="rotate(-18 106 98)">
+    <rect x="90" y="62" width="32" height="74" rx="6" fill="#2C2F36"/>
+    <rect x="96" y="75" width="5" height="5" rx="1.5" fill="#F8FAFC"/>
+    <rect x="96" y="87" width="5" height="5" rx="1.5" fill="#F8FAFC"/>
+    <rect x="96" y="99" width="5" height="5" rx="1.5" fill="#F8FAFC"/>
+  </g>
+
+  <!-- 动势线 -->
+  <path d="M56 42 Q70 24 88 29" stroke="#2C2F36" stroke-width="5" fill="none" stroke-linecap="round" opacity=".3"/>
+
+  <!-- 底排已上架三册 -->
+  <rect x="56" y="152" width="24" height="58" rx="5" fill="#2C2F36"/>
+  <rect x="86" y="158" width="22" height="52" rx="5" fill="#2C2F36"/>
+  <rect x="114" y="155" width="22" height="55" rx="5" fill="#2C2F36"/>
+</svg>

@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -201,14 +202,18 @@ def main(argv=None) -> int:
     app = QApplication(sys.argv[:1])
     theme.apply_theme(app)
 
-    from ..paths import default_config_path
+    # 应用图标：源码形态取项目 assets，exe 形态随 --add-data 解包到 _MEIPASS
+    from ..paths import default_config_path, resource_root
+    icon_path = resource_root() / "assets" / "icon" / "cinesort.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+
     if args.demo:  # demo 模式不抢锁
         from .demo_data import fake_units
         state, units, cfg_path = None, fake_units(args.rows), None
     else:
         cfg_path = Path(args.config).resolve() if args.config else default_config_path()
         if not cfg_path.exists():
-            from ..paths import resource_root
             example = resource_root() / "config.example.toml"
             if example.exists():
                 cfg_path.parent.mkdir(parents=True, exist_ok=True)

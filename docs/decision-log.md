@@ -124,3 +124,10 @@
 - Run#4 success：Release v0.5.0 发布 CineSort-setup-0.5.0.exe（33.7MB）+ SHA256SUMS.txt。
 - 远程 tag 重打流程：删远程 tag → 修 yml → 同名 tag 重推触发新 run（无发布产物的失败 tag 可安全重打）。
 - gh CLI 本机不可用：CI 状态经 GitHub 公共 API（actions/runs、jobs、releases/latest）步骤级定位，无需认证。
+
+## D-20261106-01 应用图标定稿：A「入架」二元色（owner 拍板，B 方案备选落选）
+- 抉择过程：A「入架」/ B「分流」双方案展示页比选 → owner 先定二元色纪律（弃多色书脊/徽章色族：书色统一深灰偏黑墨色，仅两色构图），再定底色逐版提亮（#F2EEE6 → #F2F4F8 → #F8FAFC），最终选 A 配图。
+- 定稿规范：墨色 #2C2F36 + 浅底 #F8FAFC 圆角方块（r56@256）；构图=双层书架 + 主角书 -18° 斜插顶格（书脊三齿孔）+ 层板 + 底排三册 + 单根动势弧线；母版 assets/icon/cinesort-icon-a.svg，小尺寸简化 glyph cinesort-icon-a-small.svg（32/16 档专用：去动势线与落书、加粗线条）。
+- 产物链：tools/make_icon.py（cairosvg+Pillow，256/64/48 用主版、32/16 用简化版）→ cinesort.ico（5 档）；窗口图标 main_window.py main() 设 app.setWindowIcon（resource_root() 解析，源码=项目 assets / 冻结=_MEIPASS）；打包接入点为 tools/build_exe.ps1 --icon + --add-data（CineSort.spec 系 gitignore 陈旧产物，构建链不走它，review 发现后回退其改动）；installer.iss SetupIconFile 同源。
+- code-review 两轴结论：无硬违规；采纳意见=删 B 方案遗留资产与全部 preview PNG（可由 make_icon 复现）、合并重复局部导入、ico 补 48 档、生成脚本入库保可追溯。驳回项=无。
+- 验证：py_compile 过；demo 冒烟截图正常；全量 165 passed（基线不增不减）；GUI 未做黑盒全流程（图标仅资源级变更，窗口标题栏图标由 OS 绘制，截图链不含）。

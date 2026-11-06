@@ -14,6 +14,7 @@ DefaultDirName={autopf}\CineSort
 DefaultGroupName=CineSort
 OutputBaseFilename=CineSort-setup-{#version}
 OutputDir=Output
+SetupIconFile=..\assets\icon\cinesort.ico
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible

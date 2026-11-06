@@ -16,6 +16,8 @@ $exe, $ver = $chosen
 & $exe $ver -m PyInstaller --noconfirm --clean --onedir --windowed `
     --name CineSort `
     --add-data "config.example.toml;." `
+    --icon "assets/icon/cinesort.ico" `
+    --add-data "assets/icon/cinesort.ico;assets/icon" `
     run.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 构建失败（退出码 $LASTEXITCODE）" }
 
