@@ -331,3 +331,41 @@ def test_demo_mode_disables_browse_controls(qapp):
     assert tab.btn_browse_fallback.isEnabled() is False
     assert tab.btn_browse_staging.isEnabled() is False
     tab.deleteLater()
+
+
+# --------------------------------------------- 弱别名表（C5 / 计划 Task-06）
+
+def test_weak_alias_form_round_trip():
+    desc = full_describe()
+    desc["weak_genre_aliases"] = {"护士": "动作", "空姐": "科幻"}
+    form = describe_to_form(desc)
+    assert set(form["weak_alias_text"].splitlines()) == {"护士=动作", "空姐=科幻"}
+    form["weak_alias_text"] += "\n\n坏行\n=X\nY="
+    body = form_to_body(form, form["library_rows"])
+    assert body["weak_genre_aliases"] == desc["weak_genre_aliases"]
+
+
+def test_weak_alias_textarea_populated(qapp, tmp_path):
+    from conftest import build_env
+
+    from app.state import AppState
+    cfg_path = build_env(
+        tmp_path, overrides={"weak_genre_aliases": {"护士": "动作"}})
+    tab = ConfigTab(AppState(cfg_path), toast=lambda m: None)
+    assert "护士=动作" in tab.f_weak_alias_text.toPlainText()
+    tab.deleteLater()
+
+
+def test_weak_alias_edit_flows_to_body(qapp):
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.f_weak_alias_text.setPlainText("护士=动作\n\n坏行")
+    form, rows = tab._collect_form()
+    body = form_to_body(form, rows)
+    assert body["weak_genre_aliases"] == {"护士": "动作"}
+    tab.deleteLater()
+
+
+def test_demo_mode_disables_weak_alias_box(qapp):
+    tab = ConfigTab(None, toast=lambda m: None)
+    assert tab.f_weak_alias_text.isEnabled() is False
+    tab.deleteLater()

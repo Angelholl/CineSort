@@ -20,6 +20,19 @@ def _fmt_weight(w: float) -> str:
     return f"{float(w):g}"
 
 
+def _parse_alias_lines(text: str) -> dict[str, str]:
+    """解析「每行 k=v」别名框：空行/无等号/空键或空值均忽略。"""
+    aliases: dict[str, str] = {}
+    for line in str(text or "").splitlines():
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip()
+        if key and val:
+            aliases[key] = val
+    return aliases
+
+
 def describe_to_form(desc: dict) -> dict:
     """把 describe dict 拍平为表单初值。"""
     plot = desc.get("plot") or {}
@@ -51,20 +64,16 @@ def describe_to_form(desc: dict) -> dict:
         "priority_text": "、".join(desc.get("genre_priority") or []),
         "alias_text": "\n".join(
             f"{k}={v}" for k, v in (desc.get("genre_aliases") or {}).items()),
+        "weak_alias_text": "\n".join(
+            f"{k}={v}" for k, v in (desc.get("weak_genre_aliases") or {}).items()),
         "library_rows": lib_rows,
     }
 
 
 def form_to_body(form: dict, library_rows: list[list[str]]) -> dict:
     """表单值逆转换为 save_config 的 body（只保证形状，不做事务校验）。"""
-    aliases: dict[str, str] = {}
-    for line in str(form.get("alias_text") or "").splitlines():
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key, val = key.strip(), val.strip()
-        if key and val:
-            aliases[key] = val
+    aliases = _parse_alias_lines(form.get("alias_text"))
+    weak_aliases = _parse_alias_lines(form.get("weak_alias_text"))
 
     libraries: list[dict] = []
     for row in library_rows or []:
@@ -108,6 +117,7 @@ def form_to_body(form: dict, library_rows: list[list[str]]) -> dict:
         },
         "genre_priority": _split_items(str(form.get("priority_text") or "")),
         "genre_aliases": aliases,
+        "weak_genre_aliases": weak_aliases,
         "libraries": libraries,
     }
 

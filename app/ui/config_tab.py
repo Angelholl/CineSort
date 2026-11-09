@@ -94,6 +94,10 @@ class ConfigTab(QWidget):
         self.f_alias_text = QPlainTextEdit()
         self.f_alias_text.setFixedHeight(96)
         self.f_alias_text.setPlaceholderText("每行：别名=标准库名")
+        self.f_weak_alias_text = QPlainTextEdit()
+        self.f_weak_alias_text.setFixedHeight(72)
+        self.f_weak_alias_text.setPlaceholderText(
+            "每行：别名=标准库名（弱信号：唯一命中时低置信、默认不勾选）")
 
         rows = [
             ("源目录", self._path_row(self.f_source_root, "选择源目录",
@@ -114,6 +118,7 @@ class ConfigTab(QWidget):
                                   self.f_learning_min_votes)),
             ("库优先级", self.f_priority_text),
             ("别名表", self.f_alias_text),
+            ("弱别名表", self.f_weak_alias_text),
         ]
         for r, (label, w) in enumerate(rows):
             cap = QLabel(label)
@@ -193,7 +198,8 @@ class ConfigTab(QWidget):
 
         # ---- dirty 标记：所有控件修改即置位（程序化回填除外）
         for w in (self.f_source_root, self.f_fallback_path, self.f_staging_dir,
-                  self.f_priority_text, self.f_alias_text):
+                  self.f_priority_text, self.f_alias_text,
+                  self.f_weak_alias_text):
             w.textChanged.connect(self._mark_dirty)
         for w in (self.f_strategy, self.f_on_conflict):
             w.currentIndexChanged.connect(self._mark_dirty)
@@ -257,7 +263,8 @@ class ConfigTab(QWidget):
                   self.f_block, self.f_plot_enabled, self.f_plot_min_score,
                   self.f_plot_normalize, self.f_learning_enabled,
                   self.f_learning_min_votes, self.f_priority_text,
-                  self.f_alias_text, self.lib_table, self.btn_save,
+                  self.f_alias_text, self.f_weak_alias_text, self.lib_table,
+                  self.btn_save,
                   self.btn_reload, self.btn_browse_source,
                   self.btn_browse_fallback, self.btn_browse_staging):
             w.setEnabled(on)
@@ -299,6 +306,7 @@ class ConfigTab(QWidget):
             self.f_learning_min_votes.setValue(form["learning_min_votes"])
             self.f_priority_text.setText(form["priority_text"])
             self.f_alias_text.setPlainText(form["alias_text"])
+            self.f_weak_alias_text.setPlainText(form["weak_alias_text"])
             self.lib_table.setRowCount(0)
             for row in form["library_rows"]:
                 self._add_library_row(row)
@@ -350,6 +358,7 @@ class ConfigTab(QWidget):
             "learning_min_votes": self.f_learning_min_votes.value(),
             "priority_text": self.f_priority_text.text(),
             "alias_text": self.f_alias_text.toPlainText(),
+            "weak_alias_text": self.f_weak_alias_text.toPlainText(),
         }
         return form, rows
 
