@@ -4,6 +4,7 @@ from conftest import build_env
 
 from app.core.config import (
     ConfigError,
+    TitleOptions,
     check_session_root,
     describe,
     dump_config_text,
@@ -174,3 +175,45 @@ def test_config_hash_changes_with_weak(tmp_path):
     weak = load_config(build_env(
         tmp_path, overrides={"weak_genre_aliases": {"护士": "动作"}}))
     assert plain.config_hash() != weak.config_hash()
+
+
+def test_title_options_loaded_defaults(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    assert cfg.title.enabled is True
+    assert cfg.title.min_score == 1.0
+
+
+def test_title_min_score_negative_rejected(tmp_path):
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(build_env(
+            tmp_path, overrides={"title": {"enabled": True, "min_score": -0.5}}))
+    assert "title.min_score" in str(excinfo.value)
+
+
+def test_dump_round_trips_title(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path, overrides={"title": {"enabled": False, "min_score": 0.5}}))
+    target = tmp_path / "roundtrip_title.toml"
+    target.write_text(dump_config_text(describe(cfg)), encoding="utf-8")
+    reloaded = load_config(target)
+    assert reloaded.title.enabled == cfg.title.enabled
+    assert reloaded.title.min_score == cfg.title.min_score
+
+
+def test_describe_raw_describe_title(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    described = describe(cfg)
+    assert isinstance(described["title"], dict)
+    assert "enabled" in described["title"]
+    assert "min_score" in described["title"]
+    raw = raw_describe({})
+    assert isinstance(raw["title"], dict)
+    assert "enabled" in raw["title"]
+    assert "min_score" in raw["title"]
+
+
+def test_config_hash_changes_with_title(tmp_path):
+    plain = load_config(build_env(tmp_path))
+    other = load_config(build_env(tmp_path))
+    other.title = TitleOptions(enabled=False, min_score=0.5)
+    assert plain.config_hash() != other.config_hash()

@@ -86,6 +86,8 @@ class ConfigTab(QWidget):
         self.f_plot_enabled = QCheckBox("启用")
         self.f_plot_min_score = self._ratio_spin()
         self.f_plot_normalize = QCheckBox("清洗")
+        self.f_title_enabled = QCheckBox("启用")
+        self.f_title_min_score = self._ratio_spin()
         self.f_learning_enabled = QCheckBox("启用")
         self.f_learning_min_votes = QSpinBox()
         self.f_learning_min_votes.setRange(1, 99)
@@ -114,6 +116,8 @@ class ConfigTab(QWidget):
             ("剧情简介", self._hbox(self.f_plot_enabled,
                                     self.f_plot_min_score,
                                     self.f_plot_normalize)),
+            ("标题启用", self.f_title_enabled),
+            ("标题阈值", self.f_title_min_score),
             ("自学习", self._hbox(self.f_learning_enabled,
                                   self.f_learning_min_votes)),
             ("库优先级", self.f_priority_text),
@@ -203,10 +207,11 @@ class ConfigTab(QWidget):
             w.textChanged.connect(self._mark_dirty)
         for w in (self.f_strategy, self.f_on_conflict):
             w.currentIndexChanged.connect(self._mark_dirty)
-        for w in (self.f_warn, self.f_block, self.f_plot_min_score):
+        for w in (self.f_warn, self.f_block, self.f_plot_min_score,
+                  self.f_title_min_score):
             w.valueChanged.connect(self._mark_dirty)
         for w in (self.f_plot_enabled, self.f_plot_normalize,
-                  self.f_learning_enabled):
+                  self.f_title_enabled, self.f_learning_enabled):
             w.toggled.connect(self._mark_dirty)
         self.f_learning_min_votes.valueChanged.connect(self._mark_dirty)
 
@@ -261,7 +266,8 @@ class ConfigTab(QWidget):
         for w in (self.f_source_root, self.f_fallback_path, self.f_staging_dir,
                   self.f_strategy, self.f_on_conflict, self.f_warn,
                   self.f_block, self.f_plot_enabled, self.f_plot_min_score,
-                  self.f_plot_normalize, self.f_learning_enabled,
+                  self.f_plot_normalize, self.f_title_enabled,
+                  self.f_title_min_score, self.f_learning_enabled,
                   self.f_learning_min_votes, self.f_priority_text,
                   self.f_alias_text, self.f_weak_alias_text, self.lib_table,
                   self.btn_save,
@@ -302,6 +308,8 @@ class ConfigTab(QWidget):
             self.f_plot_enabled.setChecked(form["plot_enabled"])
             self.f_plot_min_score.setValue(form["plot_min_score"])
             self.f_plot_normalize.setChecked(form["plot_normalize"])
+            self.f_title_enabled.setChecked(form["title_enabled"])
+            self.f_title_min_score.setValue(form["title_min_score"])
             self.f_learning_enabled.setChecked(form["learning_enabled"])
             self.f_learning_min_votes.setValue(form["learning_min_votes"])
             self.f_priority_text.setText(form["priority_text"])
@@ -354,6 +362,8 @@ class ConfigTab(QWidget):
             "plot_enabled": self.f_plot_enabled.isChecked(),
             "plot_min_score": self.f_plot_min_score.value(),
             "plot_normalize": self.f_plot_normalize.isChecked(),
+            "title_enabled": self.f_title_enabled.isChecked(),
+            "title_min_score": self.f_title_min_score.value(),
             "learning_enabled": self.f_learning_enabled.isChecked(),
             "learning_min_votes": self.f_learning_min_votes.value(),
             "priority_text": self.f_priority_text.text(),

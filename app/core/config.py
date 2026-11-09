@@ -62,6 +62,13 @@ class PlotOptions:
 
 
 @dataclass
+class TitleOptions:
+    """标题文本弱评分（特性 D）：独立阈值，不复用 plot.min_score。"""
+    enabled: bool = True
+    min_score: float = 1.0
+
+
+@dataclass
 class LearningOptions:
     """自学习（D-20261101-03）：改判/确认结果沉淀为题材→库映射。"""
     enabled: bool = True
@@ -79,6 +86,7 @@ class Config:
     strategy: str = "smart"
     on_conflict: str = "skip"
     plot: PlotOptions = field(default_factory=PlotOptions)
+    title: TitleOptions = field(default_factory=TitleOptions)
     learning: LearningOptions = field(default_factory=LearningOptions)
     staging_dir: Path | None = None
     warn_fallback_ratio: float = 0.15
@@ -101,6 +109,8 @@ class Config:
             "weak_genre_aliases": dict(sorted(self.weak_genre_aliases.items())),
             "fallback_path": normcase(self.fallback_path),
             "strategy": self.strategy,
+            "title": {"enabled": self.title.enabled,
+                      "min_score": self.title.min_score},
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -218,6 +228,14 @@ def load_config(path: Path | str) -> Config:
     if plot.min_score < 0:
         raise ConfigError("plot.min_score 不能为负数")
 
+    title_data = data.get("title") or {}
+    title = TitleOptions(
+        enabled=bool(title_data.get("enabled", True)),
+        min_score=float(title_data.get("min_score", 1.0)),
+    )
+    if title.min_score < 0:
+        raise ConfigError("title.min_score 不能为负数")
+
     learning_data = data.get("learning") or {}
     learning = LearningOptions(
         enabled=bool(learning_data.get("enabled", True)),
@@ -269,6 +287,7 @@ def load_config(path: Path | str) -> Config:
         strategy=strategy,
         on_conflict=on_conflict,
         plot=plot,
+        title=title,
         learning=learning,
         staging_dir=staging_dir,
         warn_fallback_ratio=warn_ratio,
@@ -292,6 +311,10 @@ def describe(cfg: Config) -> dict:
             "min_score": cfg.plot.min_score,
             "normalize": cfg.plot.normalize,
         },
+        "title": {
+            "enabled": cfg.title.enabled,
+            "min_score": cfg.title.min_score,
+        },
         "learning": {
             "enabled": cfg.learning.enabled,
             "min_votes": cfg.learning.min_votes,
@@ -314,6 +337,7 @@ def raw_describe(data: dict) -> dict:
             "keywords_weighted": {str(k): float(v) for k, v in (item.get("keywords_weighted") or {}).items()},
         })
     plot_data = data.get("plot") or {}
+    title_data = data.get("title") or {}
     learning_data = data.get("learning") or {}
     return {
         "source_root": str(data.get("source_root", "")),
@@ -327,6 +351,10 @@ def raw_describe(data: dict) -> dict:
             "enabled": bool(plot_data.get("enabled", True)),
             "min_score": float(plot_data.get("min_score", 2.0)),
             "normalize": bool(plot_data.get("normalize", False)),
+        },
+        "title": {
+            "enabled": bool(title_data.get("enabled", True)),
+            "min_score": float(title_data.get("min_score", 1.0)),
         },
         "learning": {
             "enabled": bool(learning_data.get("enabled", True)),
@@ -363,6 +391,11 @@ def dump_config_text(d: dict) -> str:
     lines.append(f"enabled = {'true' if plot.get('enabled', True) else 'false'}")
     lines.append(f"min_score = {float(plot.get('min_score', 2.0))}")
     lines.append(f"normalize = {'true' if plot.get('normalize', False) else 'false'}")
+    title = d.get("title") or {}
+    lines.append("")
+    lines.append("[title]")
+    lines.append(f"enabled = {'true' if title.get('enabled', True) else 'false'}")
+    lines.append(f"min_score = {float(title.get('min_score', 1.0))}")
     learning = d.get("learning") or {}
     lines.append("")
     lines.append("[learning]")

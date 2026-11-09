@@ -36,6 +36,7 @@ def _parse_alias_lines(text: str) -> dict[str, str]:
 def describe_to_form(desc: dict) -> dict:
     """把 describe dict 拍平为表单初值。"""
     plot = desc.get("plot") or {}
+    title = desc.get("title") or {}
     learning = desc.get("learning") or {}
     lib_rows: list[list[str]] = []
     for lib in desc.get("libraries") or []:
@@ -59,6 +60,8 @@ def describe_to_form(desc: dict) -> dict:
         "plot_enabled": bool(plot.get("enabled")),
         "plot_min_score": float(plot.get("min_score") or 0.0),
         "plot_normalize": bool(plot.get("normalize")),
+        "title_enabled": bool(title.get("enabled", True)),
+        "title_min_score": float(title.get("min_score", 1.0)),
         "learning_enabled": bool(learning.get("enabled")),
         "learning_min_votes": int(learning.get("min_votes") or 2),
         "priority_text": "、".join(desc.get("genre_priority") or []),
@@ -110,6 +113,10 @@ def form_to_body(form: dict, library_rows: list[list[str]]) -> dict:
             "enabled": bool(form.get("plot_enabled")),
             "min_score": float(form.get("plot_min_score") or 0.0),
             "normalize": bool(form.get("plot_normalize")),
+        },
+        "title": {
+            "enabled": bool(form.get("title_enabled")),
+            "min_score": float(form.get("title_min_score") or 1.0),
         },
         "learning": {
             "enabled": bool(form.get("learning_enabled")),

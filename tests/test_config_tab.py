@@ -397,3 +397,32 @@ def test_demo_mode_disables_weak_alias_box(qapp):
     tab = ConfigTab(None, toast=lambda m: None)
     assert tab.f_weak_alias_text.isEnabled() is False
     tab.deleteLater()
+
+
+def test_title_form_round_trip(qapp):
+    """title 控件回填→改动→聚合→form_to_body 全链路（不许原样往返糊过去）。"""
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    form = describe_to_form(full_describe())
+    tab._fill_form(form)
+    tab.f_title_enabled.setChecked(False)
+    tab.f_title_min_score.setValue(0.35)
+    collected, rows = tab._collect_form()
+    body = form_to_body(collected, rows)
+    assert body["title"] == {"enabled": False, "min_score": 0.35}
+    tab.deleteLater()
+
+
+def test_title_controls_rendered_next_to_plot_group(qapp):
+    """视觉顺序程序化钉：title 两控件各占一行，紧邻 plot 组之后，同栅格列 1。"""
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    g_plot, r_plot = _label_row(tab, "剧情简介")
+    g_en, r_en = _label_row(tab, "标题启用")
+    g_ms, r_ms = _label_row(tab, "标题阈值")
+    assert g_en is g_plot and g_ms is g_plot
+    assert r_en == r_plot + 1
+    assert r_ms == r_en + 1
+    it_en = g_en.itemAtPosition(r_en, 1)
+    assert it_en is not None and it_en.widget() is tab.f_title_enabled
+    it_ms = g_ms.itemAtPosition(r_ms, 1)
+    assert it_ms is not None and it_ms.widget() is tab.f_title_min_score
+    tab.deleteLater()
