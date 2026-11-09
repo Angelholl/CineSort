@@ -315,3 +315,18 @@ def test_plan_incomplete_marker_at_movie_level(tmp_path):
                plot="太空宇宙", tmdb="1")
     plan = scan_and_plan(cfg)
     assert by_id(plan)["一乃あおい/ABC-1"]["status"] == "incomplete_leftover"
+
+
+# ---------------- 放行 ST_BATCH：freshness 覆盖复合单元（owner 放行，Task-04） ----------------
+
+def test_freshness_covers_batch_units(tmp_path):
+    """复合单元（ST_BATCH）也纳入漂移校验：改源后 check_plan_freshness 报已变化。"""
+    cfg = load_config(build_env(tmp_path))
+    d = _make_composite(cfg, "Comp Dir")
+    plan = scan_and_plan(cfg)
+    assert by_id(plan)["Comp Dir"]["status"] == "batch_target"
+    assert check_plan_freshness(cfg, plan) == []
+    for f in d.iterdir():
+        os.utime(f, ns=(10 ** 18, 10 ** 18))
+    problems = check_plan_freshness(cfg, plan)
+    assert any("Comp Dir" in p and "已变化" in p for p in problems)

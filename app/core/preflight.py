@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .config import Config
 from .fsops import find_staging_leftovers, split_drive, staging_for_root
-from .planner import READY
+from .planner import READY, ST_BATCH
 
 LONG_PATH_WARN = 240
 
@@ -23,6 +23,7 @@ def detect_jellyfin_processes() -> list[str]:
         out = subprocess.run(
             ["tasklist", "/FO", "CSV", "/NH"],
             capture_output=True, text=True, errors="replace", timeout=15,
+            check=False,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
@@ -80,7 +81,7 @@ def run_preflight(cfg: Config, plan: dict | None = None,
 
     # 3) 磁盘空间预检（C6，跨盘复制场景）
     if plan:
-        units = [u for u in plan["units"] if u["status"] == READY and
+        units = [u for u in plan["units"] if u["status"] in (READY, ST_BATCH) and
                  (selected_ids is None or u["id"] in selected_ids)]
         needed_by_drive: dict[str, int] = {}
         sample_by_drive: dict[str, Path] = {}
@@ -98,8 +99,8 @@ def run_preflight(cfg: Config, plan: dict | None = None,
                 items.append({
                     "level": "block", "code": "disk_space",
                     "message": f"目标盘 {drive} 剩余空间不足（不可越过）",
-                    "detail": [f"待迁移约 {needed / (1 << 30):.2f} GiB，"
-                               f"剩余 {free / (1 << 30):.2f} GiB（需留 10% 余量）"],
+                    "detail": [(f"待迁移约 {needed / (1 << 30):.2f} GiB，"
+                                f"剩余 {free / (1 << 30):.2f} GiB（需留 10% 余量）")],
                 })
 
     # 4) staging 半成品残留
@@ -119,7 +120,7 @@ def run_preflight(cfg: Config, plan: dict | None = None,
     if plan:
         longs = []
         for u in plan["units"]:
-            if u["status"] != READY:
+            if u["status"] not in (READY, ST_BATCH):
                 continue
             if len(u["dst_dir"]) > LONG_PATH_WARN:
                 longs.append(f"{u['id']} → {len(u['dst_dir'])} 字符")

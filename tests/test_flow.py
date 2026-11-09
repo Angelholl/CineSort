@@ -347,3 +347,21 @@ def test_jobs_dst_combination_uses_planner_single_point():
     assert src.count("unit_dst_dir(") >= 2   # 人工改判 + 会话输出两分支
     assert "session_dst_root(" in src
     assert '/ u["dst_name"]' not in src
+
+
+def test_preflight_covers_batch_units(tmp_path):
+    """复合单元（ST_BATCH）也纳入长路径体检：detail 引用复合 id。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    name = "混" * 165
+    make_movie(cfg.source_root, name, title=name, genres=("西部",),
+               plot="乡村爱情", tmdb="55", extra_files=[("另一部.mkv", b"V" * 1024)])
+    units, notes = scanner.scan_source_root(cfg)
+    plan = build_plan(cfg, units, notes)
+    u = plan["units"][0]
+    assert u["composite"] is True and u["status"] == "batch_target"
+    assert len(u["dst_dir"]) > 240
+    items = preflight.run_preflight(cfg, plan)
+    lp = [i for i in items if i["code"] == "long_paths"]
+    assert lp and lp[0]["level"] == "warn"
+    assert any(name in d for d in lp[0]["detail"])

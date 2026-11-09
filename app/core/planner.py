@@ -238,7 +238,7 @@ def check_plan_freshness(cfg: Config, plan: dict,
     for pu in plan["units"]:
         if only_ids is not None and pu["id"] not in only_ids:
             continue
-        if pu["status"] != READY:
+        if pu["status"] not in (READY, ST_BATCH):
             continue
         src = Path(pu["src"])
         if not src.exists():
