@@ -53,7 +53,7 @@ def test_multi_cd_one_unit(tmp_path):
     assert len(units) == 1 and units[0].multi_cd
 
 
-def test_complex_dir_excluded(tmp_path):
+def test_complex_dir_becomes_batch_unit(tmp_path):
     src = tmp_path / "src"
     src.mkdir()
     d = src / "Pack"
@@ -61,8 +61,12 @@ def test_complex_dir_excluded(tmp_path):
     make_movie(d, "Film A", genres=("动作",))
     make_movie(d, "Film B", genres=("恐怖",))
     units, notes = scanner.scan_source_root(bare_cfg(src))
-    assert units == []
-    assert any(n["level"] == "excluded" and "复合目录" in n["reason"] for n in notes)
+    assert len(units) == 1
+    assert units[0].composite is True
+    assert units[0].kind == "dir"
+    assert "composite" in units[0].flags
+    assert not any(n["level"] == "excluded" for n in notes)
+    assert any(n["level"] == "info" and "复合目录" in n["reason"] for n in notes)
 
 
 def test_extras_sample_trailer_ignored(tmp_path):
@@ -243,3 +247,64 @@ def test_clean_nfo_has_no_nfo_flags(tmp_path):
     assert len(units) == 1
     assert not notes
     assert units[0].flags == []
+
+
+# ---------------- 复合目录 → 整目录单元（Task-09，D-20261109-01） ----------------
+
+def test_composite_unit_covers_whole_dir(tmp_path):
+    """复合单元的快照覆盖整目录全部文件，videos 为 mains 按名排序。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "Pack"
+    d.mkdir()
+    (d / "Film B.mkv").write_bytes(b"V" * 100)
+    (d / "Film A.mkv").write_bytes(b"V" * 100)
+    (d / "poster.jpg").write_bytes(b"P" * 300)
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.composite is True and u.file_count == 3
+    rels = {f[0] for f in u.files}
+    assert rels == {"Film A.mkv", "Film B.mkv", "poster.jpg"}
+    assert [v.name for v in u.videos] == ["Film A.mkv", "Film B.mkv"]
+
+
+def test_composite_with_nfo_still_batch(tmp_path):
+    """复合目录带 NFO 时仍只产 1 个整目录单元，不拆分。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "Pack"
+    d.mkdir()
+    (d / "Film A.mkv").write_bytes(b"V" * 100)
+    (d / "Film B.mkv").write_bytes(b"V" * 100)
+    (d / "movie.nfo").write_text(nfo_xml(title="Pack", tmdb="42"),
+                                 encoding="utf-8")
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.composite is True
+    assert u.nfo_path is not None and u.provider == "tmdb:42"
+
+
+def test_composite_no_split_on_c_variant(tmp_path):
+    """同番号 -C 变体不得被拆开：仍只产 1 个 composite 单元。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "Pack"
+    d.mkdir()
+    (d / "[ABC-1].mp4").write_bytes(b"V" * 100)
+    (d / "[ABC-1-C].mp4").write_bytes(b"V" * 100)
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    assert units[0].composite is True
+
+
+def test_supplement_dirs_not_composite(tmp_path):
+    """花絮过滤回退保护：『片名 - Behind The Scenes』场景单元 composite 为 False。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = make_movie(src, "Film Z", title="Film Z", genres=("动作",))
+    (d / "Film Z - Behind The Scenes.mkv").write_bytes(b"V" * 2048)
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    assert units[0].composite is False

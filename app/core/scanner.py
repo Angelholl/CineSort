@@ -63,6 +63,7 @@ class Unit:
     videos: list[Path] = field(default_factory=list)
     multi_cd: bool = False
     disc: bool = False
+    composite: bool = False
     nfo_path: Path | None = None
     nfo: NfoInfo | None = None
     title: str = ""
@@ -160,8 +161,28 @@ def _analyze_dir(d: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
             key = m.group(1).strip(" ._-").lower() if m else v.stem.lower()
             bases.setdefault(key, []).append(v)
         if len(bases) > 1:
-            return None, {"level": "excluded", "path": str(d),
-                          "reason": "复合目录：一个目录内疑似有多部影片，请手动处理"}
+            vids = sorted(mains or videos, key=lambda p: p.name.lower())
+            nfo_path = find_nfo(d, vids, False)
+            info = parse_nfo_file(nfo_path) if nfo_path else None
+            if info and info.parse_error:
+                flags.append("nfo_parse_warning")
+            elif info and info.recovery:
+                flags.append("nfo_recovered")
+            files = snapshot_dir(d)
+            total, count, mx = _snapshot_stats(files)
+            unit = Unit(
+                id=rel_id, path=d, kind="dir", dst_name=d.name,
+                videos=vids, multi_cd=False, disc=disc, composite=True,
+                nfo_path=nfo_path, nfo=info,
+                title=(info.title if info and info.title else d.name),
+                year=(info.year if info else None),
+                provider=(info.provider_id if info else None),
+                files=files, total_size=total, file_count=count, max_mtime_ns=mx,
+                flags=flags + ["composite"],
+            )
+            return unit, {"level": "info", "path": str(d),
+                          "reason": f"复合目录：{len(bases)} 个疑似影片 base，"
+                                    "已作为整目录单元生成（需目录级改判后执行）"}
         vids = next(iter(bases.values()))
         multi_cd = len(vids) > 1 and any(RE_MULTI_CD.match(v.stem) for v in vids)
     else:
