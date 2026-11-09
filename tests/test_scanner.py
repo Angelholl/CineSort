@@ -1,9 +1,10 @@
 """影片单元扫描测试。"""
 from pathlib import Path
 
+from conftest import build_env, make_movie, nfo_xml
+
 from app.core import scanner
 from app.core.config import Config, Library, load_config
-from conftest import build_env, make_movie, nfo_xml
 
 
 def bare_cfg(src) -> Config:
