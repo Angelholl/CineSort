@@ -131,3 +131,15 @@
 - 产物链：tools/make_icon.py（cairosvg+Pillow，256/64/48 用主版、32/16 用简化版）→ cinesort.ico（5 档）；窗口图标 main_window.py main() 设 app.setWindowIcon（resource_root() 解析，源码=项目 assets / 冻结=_MEIPASS）；打包接入点为 tools/build_exe.ps1 --icon + --add-data（CineSort.spec 系 gitignore 陈旧产物，构建链不走它，review 发现后回退其改动）；installer.iss SetupIconFile 同源。
 - code-review 两轴结论：无硬违规；采纳意见=删 B 方案遗留资产与全部 preview PNG（可由 make_icon 复现）、合并重复局部导入、ico 补 48 档、生成脚本入库保可追溯。驳回项=无。
 - 验证：py_compile 过；demo 冒烟截图正常；全量 165 passed（基线不增不减）；GUI 未做黑盒全流程（图标仅资源级变更，窗口标题栏图标由 OS 绘制，截图链不含）。
+
+## D-20261109-01 分类质量立项：配置层定稿 + 代码四特性（owner 拍板）
+- 背景实测（源 `E:\已刮削\待整理`，用项目自身 scanner+classifier 跑 owner 实机配置 `D:\CineSort-beta\CineSort\config.toml`）：97 单元 rule 60.8% / fallback 39.2%，已越 `block_fallback_ratio=0.30`。根因不是算法：片源 NFO 是刮削器标签云（192 个不同词，繁简混排 + 技术标签），与 40 个自设库名只有 5 词同名；`genre_aliases={}` + `plot.enabled=false` → 兜底主因；`strategy=smart` 因库无 keywords 而空转（多候选恒回退优先级表）。
+- 配置层定稿（已生效，原文件备份 `config.toml.bak-20261109-1756`）：56 条 alias（繁简双写）+ genre_priority 重排（具体题材在前、通用标签靠后）→ rule 97.9% / fallback 2.1% / 24 库命中。owner 定案：`3P/4P`→多飞、`多P/滥交/濫交`→乱交、`熟女`/`美熟女` 不归人妻、新增 `口交` 库、审计驱动补 `亂倫`族→义父。
+- 撤回一项假设：撤掉 `出軌→寝取` 后 13 个真 NTR 单元（标题明写 寝取らせ/NTR，标签只有 出軌 无 寝取）错分到人妻/中出/痴女，寝取命中 15→2，覆盖率不变而精度下降 → 映射保留。**教训：精度审计必须逐例读标题，不能只看兜底率。**
+- 精度审计（30 例按库分层抽样、人工核对标题与标签）：严格 22/30≈73%、宽松 26/30≈87%，低于 decision-critic 设定的"默认勾选需 ≥90%"门槛。错例成因三分：标签与标题语义冲突、线索只在标题里（标签无）、源标签本身错。
+- decision-critic 评议 `[HIGH_RISK_OBJECTION]`（针对"复合目录自动拆分为独立单元"）：**处置=采纳**。立项不含自动拆分；复合目录以整目录为单位进计划视图，状态 `ST_BATCH`、默认不勾、不进现有 `fallback_ratio` 分子分母（新口径 `fb/(total−composite)`），避免 147 个无 NFO 单元把兜底率顶到 (2+147)/244≈61% 造成 preflight 常态阻断。
+- 同轮评议另一结论采纳：摘要分析在本数据集是低杠杆（97 单元仅 50 个有日文 plot，且已被 alias 覆盖到 97.9%；147 个视频无 NFO 即无摘要可吃）→ 不做 40 套手工 keywords、不做 TF-IDF 自动关键词、不做外部 LLM；文本信号只以「标题弱评分」形态进入（low 置信、默认不选、独立阈值）。
+- 15 个 NFO 解析失败根因定位：JavDB 写出 `<7mmtvid>`，元素名以数字开头违反 XML NameStartChar，`ET.fromstring` 报 not well-formed；regex 兜底已抓到全部 genres/title/plot（信息未丢，只多 15 条告警）。修法 `re.sub(r"<(/?)(\d[^\s>/]*)", r"<\1_\2", text)` 实测 15/15 恢复 XML 正常路径且逐字段与 regex 路径一致。附带发现：`<javdbid>` 未纳入 provider id（uniqueids 空）→ planner 的 same_id 去重对这些单元失效，立项特性 A 补齐。
+- owner 两项取舍拍板：①复合目录即使翻出带题材 NFO 也强制 `ST_BATCH` 永不自动执行（多影片目录按单一 NFO 归库必错位）；②弱标签护栏不自动修对任何错例、只把可疑命中降为人工复核，初始弱标记集收窄为 `护士`/`看护妇・ナース` + `女同性戀`/`女同性恋`/`女同接吻`/`レズキス` 两族 6 条，`人妻` 族与职业族暂缓——实跑一轮看默认不勾的行数再扩集（扩集是纯配置改动，不动代码）。
+- 产物：规格 `docs/design/2026-11-09-classification-quality.md`、计划 `docs/plans/2026-11-09-classification-quality.md`（13 任务、新增 70 测试）。测试基线本轮实测 `197 passed`（collect-only 亦 197，与规划员静态计数一致），收口目标 ≥267。
+- 遗留：43 复合目录 / 147 视频按「逻辑归集 + 目录级批量改判」处理，不做物理搬移、不改目录名；GUI `dump_config_text` 把 genre_aliases 写成单行 inline table（往返不丢条目但丢注释）——本轮不动 dump 逻辑，如需保注释另开卡。
