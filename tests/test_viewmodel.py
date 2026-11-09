@@ -357,3 +357,13 @@ def test_session_dst_root_rule_shared_with_jobs():
     assert planner.session_dst_root(r"E:\out", "科幻", True) == Path(r"E:\out\科幻")
     assert planner.session_dst_root(r"E:\out", "科幻", False) == Path(r"E:\out")
     assert vm.session_dst_root is planner.session_dst_root
+
+def test_title_badge_and_filter(units):
+    """title 徽章沿用 plot 色值；level 筛选 "title" 只留 title 单元。"""
+    assert "title" in vm.LEVEL_BADGES
+    assert vm.LEVEL_BADGES["title"][1] == vm.LEVEL_BADGES["plot"][1]
+    t = make_unit("G 标题", level="title", conf="low", lib="科幻",
+                  default_selected=False)
+    model = vm.PlanViewModel(units + [t])
+    model.set_filter("title")
+    assert [r["id"] for r in model.rows()] == ["G 标题"]

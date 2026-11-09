@@ -166,3 +166,105 @@ def test_map_genres_ex_shapes(tmp_path):
     assert unmapped == ["西部"]
     s, u = map_genres(cfg, ["Sci-Fi", "护士", "西部", "scifi"])
     assert s == strong and u == unmapped
+
+# ---------------------------------------------------------------- 卡 C7（Task-08）：score_title 标题弱评分
+
+def title_unit(title, genres=(), plot=""):
+    """带标题文本的单元：NFO title 与单元 title 各携一份（scanner 真实形态）。"""
+    return SimpleNamespace(nfo=NfoInfo(genres=list(genres), plot=plot, title=title),
+                           title=title)
+
+
+def test_score_title_counts_alias_hits():
+    from app.core.classifier import score_title
+
+    cfg = make_cfg()
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    res = score_title("マジックミラー号 陥没陷阱", cfg)
+    assert res and res[0][0] == "科幻"
+    assert res[0][1] >= 1.0
+    assert any("マジックミラー号×1" in h for h in res[0][2])
+
+
+def test_score_title_no_length_normalization():
+    from app.core.classifier import score_title
+
+    cfg = make_cfg()
+    # 20 字短标题命中 1 次：不做 len**0.5 归一，分恰为 1.0
+    res = score_title("一段二十字符的普通描述文字样本科幻", cfg)
+    assert res[0][1] == 1.0
+
+
+def test_score_title_skips_short_keys():
+    from app.core.classifier import score_title
+
+    cfg = make_cfg()
+    cfg.libraries["P"] = Library("P", Path("X:/lib/P"))
+    cfg.weak_genre_aliases = {"Q": "科幻"}
+    res = score_title("P和Q都是单字符键", cfg)
+    assert res == []
+
+
+def test_score_title_no_double_count_on_overlap():
+    from app.core.classifier import score_title
+
+    cfg = make_cfg()
+    cfg.libraries["美女"] = Library("美女", Path("X:/lib/美女"))
+    cfg.weak_genre_aliases = {"美少女": "动作"}
+    res = score_title("美少女物语", cfg)
+    total = sum(s for _n, s, _h in res)
+    assert total == 1.0
+    assert not any(n == "美女" for n, _s, _h in res), \
+        "美女库不得因『美少女』同一跨度得分（最长键优先、跨度被消费）"
+    assert res[0][0] == "动作" and res[0][1] == 1.0
+
+
+def test_title_pick_no_genres():
+    cfg = make_cfg()
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    d = classify(title_unit("マジックミラー号 陥没"), cfg)
+    assert d.level == "title"
+    assert d.confidence == "low"
+    assert "标题" in d.reason
+    assert any("标题命中" in e for e in d.evidence)
+
+
+def test_title_pick_after_soft_learned():
+    cfg = make_cfg()
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    cfg.learning.min_votes = 2
+    learned = {"entries": {"西部": {"display": "西部",
+                                    "libs": {"动作": {"votes": 1, "manual": 0,
+                                                      "last": ""}}}}}
+    d = classify(title_unit("マジックミラー号 陥没", genres=("西部",)), cfg, learned)
+    assert d.level == "learned"
+
+
+def test_title_never_overrides_rule():
+    cfg = make_cfg()
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    d = classify(title_unit("动作大片 マジックミラー号 出撃", genres=("Sci-Fi",)), cfg)
+    assert d.target == "科幻"
+    assert d.level == "rule"
+    assert not any("标题命中" in e for e in d.evidence)
+
+
+def test_title_disabled_by_config():
+    cfg = make_cfg()
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    cfg.title.enabled = False
+    d = classify(title_unit("マジックミラー号 陥没"), cfg)
+    assert d.level == "fallback"
+
+
+def test_title_evidence_label_distinct():
+    cfg = make_cfg(min_score=2.0)
+    cfg.weak_genre_aliases = {"マジックミラー号": "科幻"}
+    plot_d = classify(unit([], "太空站发生宇宙灾难"), cfg)
+    assert plot_d.level == "plot"
+    assert any(e.startswith("摘要命中") for e in plot_d.evidence)
+    assert not any(e.startswith("标题命中") for e in plot_d.evidence)
+    title_d = classify(title_unit("マジックミラー号 陥没"), cfg)
+    assert title_d.level == "title"
+    assert any(e.startswith("标题命中") for e in title_d.evidence)
+    assert not any(e.startswith("摘要命中") for e in title_d.evidence)

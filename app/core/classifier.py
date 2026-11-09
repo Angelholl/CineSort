@@ -18,10 +18,12 @@ from .nfo import normalize_key
 LEVEL_RULE = "rule"
 LEVEL_PLOT = "plot"
 LEVEL_LEARNED = "learned"
+LEVEL_TITLE = "title"
 LEVEL_FALLBACK = "fallback"
 
 LEVEL_LABELS = {LEVEL_RULE: "规则", LEVEL_PLOT: "摘要预判",
-                LEVEL_LEARNED: "自学习", LEVEL_FALLBACK: "兜底"}
+                LEVEL_LEARNED: "自学习", LEVEL_TITLE: "标题预判",
+                LEVEL_FALLBACK: "兜底"}
 
 
 @dataclass
@@ -105,6 +107,46 @@ def score_plot(plot: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
     return results
 
 
+def score_title(text: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
+    """标题弱评分：词表 = 各库名 + 强别名键 + 弱别名键（归一键 → 库名，
+    同名先出现者胜出）。键长 < 2 一律跳过。
+
+    不做 ``len**0.5`` 长度归一（标题是短文本，会被放大）。词表里互为子串的
+    键（如库名『美女』⊂ 标签词『美少女』）不得在同一跨度上重复计分：
+    最长键优先匹配，命中跨度被消费掉，短键不再回头计分。
+    同库命中聚合求和；返回 [(库名, 分, 命中明细)]，按 (-分, 库名) 降序。
+    """
+    vocab: dict[str, str] = {}
+    for source in (alias_map(cfg), weak_alias_map(cfg)):
+        for k, lib in source.items():
+            if len(k) >= 2 and k not in vocab:
+                vocab[k] = lib
+    if not vocab:
+        return []
+    norm = normalize_key(text or "")
+    if not norm:
+        return []
+    keys = sorted(vocab, key=len, reverse=True)
+    counts: dict[str, int] = {}
+    i, size = 0, len(norm)
+    while i < size:
+        for k in keys:
+            if norm.startswith(k, i):
+                counts[k] = counts.get(k, 0) + 1
+                i += len(k)          # 消费命中跨度：短键不得在同一跨度重复计分
+                break
+        else:
+            i += 1
+    scores: dict[str, float] = {}
+    hits: dict[str, list[str]] = {}
+    for k, n in counts.items():
+        lib = vocab[k]
+        scores[lib] = scores.get(lib, 0.0) + n
+        hits.setdefault(lib, []).append(f"{k}×{n}")
+    return sorted(((lib, s, hits[lib]) for lib, s in scores.items()),
+                  key=lambda x: (-x[1], x[0]))
+
+
 def _rank(cfg: Config, lib_name: str) -> tuple[int, int]:
     """优先级排序键：表内位置优先；未列入的库同档（交由历史倾向/声明顺序裁决）。"""
     if lib_name in cfg.genre_priority:
@@ -137,7 +179,20 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
     scoring = score_plot(plot, cfg) if cfg.plot.enabled else []
     best = scoring[0] if scoring else None
 
-    def fallback(reason: str) -> Decision:
+    title_text = " ".join(t.strip() for t in
+                          ((nfo.title if nfo else "") or "",
+                           (getattr(unit, "title", "") or "")) if t.strip())
+    title_scoring = (score_title(title_text, cfg)
+                     if cfg.title.enabled and title_text else [])
+
+    def fallback(reason: str, title_ok: bool = True) -> Decision:
+        if (title_ok and cfg.title.enabled and title_scoring
+                and title_scoring[0][1] >= cfg.title.min_score):
+            name, sc, hits = title_scoring[0]
+            return Decision(
+                name, str(cfg.libraries[name].path), LEVEL_TITLE,
+                f"标题弱命中『{name}』{sc:g} 分（低置信，默认不勾选）",
+                [f"标题命中：{h}" for h in hits[:8]], "low")
         ev = []
         if genres:
             ev.append("NFO 题材：" + "、".join(genres))

@@ -18,7 +18,7 @@ FILTER_ALL = "all"
 FILTER_READY = "ready"
 FILTER_APPLIED = "applied"
 FILTER_BLOCKED = "blocked"
-LEVEL_FILTERS = ("rule", "plot", "learned", "fallback")
+LEVEL_FILTERS = ("rule", "plot", "learned", "title", "fallback")
 FILTERS = (FILTER_ALL, FILTER_READY) + LEVEL_FILTERS + (FILTER_BLOCKED, FILTER_APPLIED)
 
 # 判定等级 → (中文, 徽章键)。徽章配色见 theme.BADGE_COLORS：
@@ -27,6 +27,7 @@ LEVEL_BADGES = {
     "rule": ("规则", "rule"),
     "plot": ("摘要预判", "plot"),
     "learned": ("自学习", "learned"),
+    "title": ("标题预判", "plot"),   # 复用 plot 色值，不新增颜色常量
     "fallback": ("兜底", "fallback"),
 }
 
