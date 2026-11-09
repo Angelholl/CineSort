@@ -71,6 +71,13 @@ def session_dst_root(output_root: str | Path, target_lib: str,
     return root / target_lib if group_by_category else root
 
 
+def unit_dst_dir(target_root: str | Path, actress: str | None, dst_name: str) -> Path:
+    """「根 + 女优段 + 影片段」唯一组合点：build_plan / jobs 改写 / UI 预览共用。
+    actress 为 None（无女优段单元）→ 根/dst_name，保持既有扁平语义（规格 §3.3）。"""
+    root = Path(target_root)
+    return root / actress / dst_name if actress else root / dst_name
+
+
 def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     created = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     learned = learned_store.load(cfg.runtime_dir)
@@ -78,7 +85,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     for u in units:
         is_composite = getattr(u, "composite", False)
         dec = classify(u, cfg, learned)
-        dst_dir = Path(dec.target_path) / u.dst_name
+        dst_dir = unit_dst_dir(dec.target_path, getattr(u, "actress", None), u.dst_name)
         status, conflict_kind, unotes = READY, None, []
         genres, unmapped = (list(u.nfo.genres), []) if u.nfo else ([], [])
         if u.nfo:
@@ -121,6 +128,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "src": str(u.path),
             "dst_dir": str(dst_dir),
             "dst_name": u.dst_name,
+            "actress": getattr(u, "actress", None),
             "target_lib": dec.target,
             "target_root": dec.target_path,
             "level": "composite" if is_composite else dec.level,

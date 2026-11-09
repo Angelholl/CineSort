@@ -1,5 +1,6 @@
 """计划构建 / 冲突三分 / 漂移检测测试（评议条件 C3 / C7）。"""
 import os
+from pathlib import Path
 
 from conftest import build_env, make_movie
 
@@ -217,3 +218,100 @@ def test_composite_conflict_detection(tmp_path):
     plan = scan_and_plan(cfg)
     u = by_id(plan)["Comp Dir"]
     assert u["status"] == ST_CONFLICT   # 硬状态优先于 ST_BATCH
+
+
+# ---------------- 三层布局：unit_dst_dir 组合单点与冲突语义（D-20261110-01，Task-02） ----------------
+
+def test_unit_dst_dir_combination_rule():
+    """组合单点：有女优段三层、无女优段扁平、会话根经 session_dst_root 后仍三层。"""
+    from app.core.planner import session_dst_root, unit_dst_dir
+    assert unit_dst_dir(r"E:\lib", "女优", "MOVIE") == Path(r"E:\lib\女优\MOVIE")
+    assert unit_dst_dir(r"E:\lib", None, "MOVIE") == Path(r"E:\lib\MOVIE")
+    root = session_dst_root("E:/out", "科幻", True)
+    assert unit_dst_dir(root, "女优", "M") == Path("E:/out/科幻/女优/M")
+
+
+def test_plan_drilled_unit_dst_three_layers(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(cfg.source_root / "一乃あおい", "ABC-1", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["一乃あおい/ABC-1"]
+    assert u["actress"] == "一乃あおい"
+    assert u["dst_dir"] == str(scifi / "一乃あおい" / "ABC-1")
+    assert u["status"] == "ready" and u["level"] == "rule"
+    assert u["default_selected"] is True
+
+
+def test_plan_actress_dir_exists_merges_not_conflict(tmp_path):
+    """目标女优目录已存在（含其他影片）→ 合并进该女优目录，不判 conflict_name。"""
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(scifi / "一乃あおい", "EXIST-1", genres=("科幻",), tmdb="9")
+    make_movie(cfg.source_root / "一乃あおい", "ABC-2", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["一乃あおい/ABC-2"]
+    assert u["status"] == "ready"          # owner 拍板 2：女优层撞名=合并
+    assert u["dst_dir"] == str(scifi / "一乃あおい" / "ABC-2")
+
+
+def test_plan_same_movie_three_layers_already_placed(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(scifi / "一乃あおい", "ABC-1", genres=("科幻",), tmdb="1")
+    make_movie(cfg.source_root / "一乃あおい", "ABC-1", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["一乃あおい/ABC-1"]
+    assert u["status"] == "already_placed"
+    assert "冗余副本" in " ".join(u["notes"])
+
+
+def test_plan_same_name_movie_three_layers_conflict(tmp_path):
+    """同名异片在影片层冲突（既有语义），不因女优层存在而误判。"""
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(scifi / "一乃あおい", "ABC-1", genres=("科幻",), tmdb="2")
+    make_movie(cfg.source_root / "一乃あおい", "ABC-1", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    assert by_id(plan)["一乃あおい/ABC-1"]["status"] == "conflict_name"
+
+
+def test_plan_movie_dir_name_equals_actress_name(tmp_path):
+    """影片目录名==女优名：三层组合天然区分，不与女优层撞名混淆。"""
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(scifi / "一乃あおい", "EXIST", genres=("科幻",), tmdb="9")
+    make_movie(cfg.source_root / "一乃あおい", "一乃あおい", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["一乃あおい/一乃あおい"]
+    assert u["status"] == "ready"
+    assert u["dst_dir"] == str(scifi / "一乃あおい" / "一乃あおい")
+
+
+def test_plan_actressless_unit_flat_dst_regression(tmp_path):
+    """无女优段单元（顶层单片目录）→ 扁平 dst，既有语义回归钉。"""
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    make_movie(cfg.source_root, "Flat Film", genres=("科幻",), tmdb="5")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["Flat Film"]
+    assert u["actress"] is None
+    assert u["dst_dir"] == str(scifi / "Flat Film")
+
+
+def test_plan_incomplete_marker_at_movie_level(tmp_path):
+    """半成品检查点随 dst 升到影片层：库内影片目录含 .incomplete 标记 → ST_INCOMPLETE。"""
+    cfg = load_config(build_env(tmp_path))
+    scifi = cfg.libraries["科幻"].path
+    leftover = scifi / "一乃あおい" / "ABC-1"
+    leftover.mkdir(parents=True)
+    (leftover / ".incomplete-20261110").write_text("x", encoding="utf-8")
+    make_movie(cfg.source_root / "一乃あおい", "ABC-1", genres=("科幻",),
+               plot="太空宇宙", tmdb="1")
+    plan = scan_and_plan(cfg)
+    assert by_id(plan)["一乃あおい/ABC-1"]["status"] == "incomplete_leftover"
