@@ -365,3 +365,69 @@ def test_preflight_covers_batch_units(tmp_path):
     lp = [i for i in items if i["code"] == "long_paths"]
     assert lp and lp[0]["level"] == "warn"
     assert any(name in d for d in lp[0]["detail"])
+
+
+# ---------------- 放行 ST_BATCH：执行门 + 整目录改判（owner 放行，Task-05） ----------------
+
+def _make_top_composite(cfg, name):
+    """顶层复合目录（两个不同 base 视频直接躺目录 → R1 → composite 单元）。"""
+    return make_movie(cfg.source_root, name, title=name, genres=("西部",),
+                      plot="乡村爱情", tmdb="33",
+                      extra_files=[("另一部影片.mkv", b"V" * 1024)])
+
+
+def test_apply_composite_requires_override(tmp_path):
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_top_composite(cfg, "Comp Dir")
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    state.start_apply(["Comp Dir"], {"jellyfin_running"}, {})
+    st = wait_job(state)
+    assert st["status"] == "failed"
+    assert "不在可执行状态" in st["error"]
+    assert (cfg.source_root / "Comp Dir").is_dir()      # 源未动
+
+
+def test_apply_composite_whole_dir_moves(tmp_path):
+    """改判后整目录迁移：目录名不变、落点为库根平铺（复合单元无女优段）。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_top_composite(cfg, "Comp Dir")
+    scifi = cfg.libraries["科幻"].path
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    state.start_apply(["Comp Dir"], {"jellyfin_running"}, {"Comp Dir": "科幻"})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["moved"] == 1
+    assert (scifi / "Comp Dir").is_dir()
+    assert (scifi / "Comp Dir" / "另一部影片.mkv").is_file()
+    assert not (cfg.source_root / "Comp Dir").exists()
+    # 整目录改判不入学习：NFO 至多描述其中一部影片，不为占位分类记账
+    lp = cfg.path.parent / "runtime" / "learned.json"
+    learned = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {}
+    assert not learned.get("entries")
+
+
+def test_apply_composite_undo_restores(tmp_path):
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_top_composite(cfg, "Comp Dir")
+    scifi = cfg.libraries["科幻"].path
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    state.start_apply(["Comp Dir"], {"jellyfin_running"}, {"Comp Dir": "科幻"})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    sess = list_sessions(state.runtime_dir() / "journals")[0]["file"]
+    state.start_undo(sess)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["restored"] == 1
+    assert (cfg.source_root / "Comp Dir").is_dir()      # 整目录回源位
+    assert not (scifi / "Comp Dir").exists()
+    assert state.plan()["units"][0]["status"] == "batch_target"  # mark_undone 回 ST_BATCH

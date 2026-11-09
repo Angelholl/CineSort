@@ -13,6 +13,7 @@ from .config import check_session_root, load_config
 from .journal import Journal, done_entries, is_valid_session_name
 from .planner import (
     READY,
+    ST_BATCH,
     build_plan,
     check_plan_freshness,
     load_plan,
@@ -145,7 +146,10 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     if problems:
         raise RuntimeError("计划已过期，未执行任何操作。" + "；".join(problems[:5]))
     units = [u for u in plan["units"] if u["id"] in set(ids)]
-    bad = [u["id"] for u in units if u["status"] != READY]
+    # ST_BATCH（整目录待改判）仅在人工指定目标库后放行
+    bad = [u["id"] for u in units
+           if u["status"] != READY
+           and not (u["status"] == ST_BATCH and overrides.get(u["id"]))]
     if bad:
         raise RuntimeError("以下影片不在可执行状态：" + "、".join(bad))
     if not units:
@@ -254,9 +258,11 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
         mark_applied(cfg.runtime_dir, done_ids)
         state.invalidate_plan()
         if cfg.learning.enabled:
-            # 自学习沉淀（D-20261101-03）：人工改判×2票，确认结果×1票
+            # 自学习沉淀（D-20261101-03）：人工改判×2票，确认结果×1票。
+            # 复合单元整目录改判不入学习：其 NFO 至多描述其中一部影片，
+            # 不为占位分类记账（计划 Task-05「learned 空转」的落实）。
             for u in units:
-                if u["id"] in set(done_ids):
+                if u["id"] in set(done_ids) and not u.get("composite"):
                     learned_store.record(cfg.runtime_dir, u["genres"],
                                          u["target_lib"],
                                          manual=u["id"] in overrides)
