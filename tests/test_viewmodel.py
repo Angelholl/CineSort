@@ -382,3 +382,35 @@ def test_composite_gate_requires_override():
     assert model._executable(u) is True
     assert model.checked_not_ready() == []
     assert model.can_apply() is True
+
+
+# ---------------- 三层布局：目标路径预览与兜底率分母（D-20261110-01，Task-06） ----------------
+
+def test_effective_dst_dir_three_layers_and_flat():
+    """预览目标路径 = unit_dst_dir(有效根, actress, dst_name)；单点钉对齐 planner。"""
+    u = {**make_unit("一乃あおい/ABC-1"), "actress": "一乃あおい", "dst_name": "ABC-1",
+         "dst_dir": r"D:\媒体库\科幻\一乃あおい\ABC-1"}
+    m = vm.PlanViewModel([u])
+    assert m.effective_dst_dir(u) == r"D:\媒体库\科幻\一乃あおい\ABC-1"
+    m.set_output_root(r"E:\out")
+    assert m.effective_dst_dir(u) == r"E:\out\科幻\一乃あおい\ABC-1"
+    flat = {**make_unit("Flat"), "actress": None, "dst_name": "Flat",
+            "dst_dir": r"D:\媒体库\科幻\Flat"}
+    m2 = vm.PlanViewModel([flat])
+    assert m2.effective_dst_dir(flat) == r"D:\媒体库\科幻\Flat"     # 扁平回归钉
+    m2.set_output_root(r"E:\out")
+    assert m2.effective_dst_dir(flat) == r"E:\out\科幻\Flat"
+    assert vm.unit_dst_dir is planner.unit_dst_dir   # 与 session 单点钉同款
+
+
+def test_stats_fallback_ratio_excludes_composite():
+    """viewmodel 兜底率分母对齐 planner：total − composite（C9 轮遗留口径分裂修正）。"""
+    comp = make_unit("Comp", level="composite", status=planner.ST_BATCH,
+                     lib="兜底库", default_selected=False, genres=())
+    fb = make_unit("Unknown", level="fallback", conf="low", lib="兜底库",
+                   default_selected=False, genres=("西部",))
+    model = vm.PlanViewModel([comp, fb])
+    st = model.stats()
+    assert st["total"] == 2
+    assert st["composite"] == 1
+    assert st["fallback_ratio"] == 1.0   # 分母 1（2−1）而非 2

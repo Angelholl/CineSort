@@ -11,7 +11,15 @@
 """
 from __future__ import annotations
 
-from app.core.planner import READY, ST_BATCH, STATUS_LABELS, session_dst_root
+from pathlib import Path
+
+from app.core.planner import (
+    READY,
+    ST_BATCH,
+    STATUS_LABELS,
+    session_dst_root,
+    unit_dst_dir,
+)
 
 # 筛选键 → 语义；UI 的 chips 顺序即此顺序
 FILTER_ALL = "all"
@@ -152,7 +160,8 @@ class PlanViewModel:
                 out["applied"] += 1
             else:
                 out["blocked"] += 1
-        out["fallback_ratio"] = out["fallback"] / max(out["total"], 1)
+        # 兜底率分母与 planner 口径对齐：排除复合单元（整目录不算分母）
+        out["fallback_ratio"] = out["fallback"] / max(out["total"] - out.get("composite", 0), 1)
         return out
 
     # ------------------------------------------------------------- 选择集
@@ -227,6 +236,13 @@ class PlanViewModel:
         root = session_dst_root(self.output_root, self.effective_target_lib(unit),
                                 self.group_by_category)
         return str(root)
+
+    def effective_dst_dir(self, unit: dict) -> str:
+        """该单元最终目标目录（含会话输出）。组合唯一真值 = planner.unit_dst_dir；
+        dst_name 缺失时回退 dst_dir 尾段（兼容旧 demo 数据）。"""
+        root = self.effective_output_root(unit) or unit["target_root"]
+        name = unit.get("dst_name") or Path(unit["dst_dir"]).name
+        return str(unit_dst_dir(root, unit.get("actress"), name))
 
     def overridden_ids(self) -> list[str]:
         return [u["id"] for u in self._units if u["id"] in self.overrides]
