@@ -286,6 +286,34 @@ def test_browse_cancel_keeps_field(qapp, monkeypatch):
     tab.deleteLater()
 
 
+def _label_row(tab, text):
+    """在 tab 的栅格布局里定位某个标签文本所在的 (layout, row)。"""
+    from PySide6.QtWidgets import QGridLayout, QLabel
+    for grid in tab.findChildren(QGridLayout):
+        for r in range(grid.rowCount()):
+            it = grid.itemAtPosition(r, 0)
+            w = it.widget() if it else None
+            if isinstance(w, QLabel) and w.text() == text:
+                return grid, r
+    raise AssertionError(f"未找到标签行：{text}")
+
+
+def test_weak_alias_row_rendered_after_alias_row(qapp):
+    """视觉顺序程序化钉：「弱别名表」标签行紧跟在「别名表」之后，且该行控件正是弱别名框。
+
+    主审补钉：本会话模型无图像输入，无法目验截图，故把提交正文里"弱别名表行位于
+    别名表之后"这句视觉断言改成可跑的布局断言，不靠人眼也不靠措辞。
+    """
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    g_alias, r_alias = _label_row(tab, "别名表")
+    g_weak, r_weak = _label_row(tab, "弱别名表")
+    assert g_weak is g_alias
+    assert r_weak == r_alias + 1
+    it = g_weak.itemAtPosition(r_weak, 1)
+    assert it is not None and it.widget() is tab.f_weak_alias_text
+    tab.deleteLater()
+
+
 def test_browse_fallback_and_staging_wired(qapp, monkeypatch):
     from PySide6.QtWidgets import QFileDialog
     picks = {"选择兜底库目录": "E:/fb", "选择暂存目录（可留空）": "E:/st"}
