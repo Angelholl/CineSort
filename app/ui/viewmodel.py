@@ -11,14 +11,14 @@
 """
 from __future__ import annotations
 
-from app.core.planner import READY, STATUS_LABELS, session_dst_root
+from app.core.planner import READY, ST_BATCH, STATUS_LABELS, session_dst_root
 
 # 筛选键 → 语义；UI 的 chips 顺序即此顺序
 FILTER_ALL = "all"
 FILTER_READY = "ready"
 FILTER_APPLIED = "applied"
 FILTER_BLOCKED = "blocked"
-LEVEL_FILTERS = ("rule", "plot", "learned", "title", "fallback")
+LEVEL_FILTERS = ("rule", "plot", "learned", "title", "fallback", "composite")
 FILTERS = (FILTER_ALL, FILTER_READY) + LEVEL_FILTERS + (FILTER_BLOCKED, FILTER_APPLIED)
 
 # 判定等级 → (中文, 徽章键)。徽章配色见 theme.BADGE_COLORS：
@@ -29,6 +29,7 @@ LEVEL_BADGES = {
     "learned": ("自学习", "learned"),
     "title": ("标题预判", "plot"),   # 复用 plot 色值，不新增颜色常量
     "fallback": ("兜底", "fallback"),
+    "composite": ("整目录", "rule"),  # 复用 rule 色值，不新增颜色常量
 }
 
 # 置信等级 → (中文, 着色键)。high 走正文强调，medium/low 逐级弱化。
@@ -186,10 +187,16 @@ class PlanViewModel:
     def checked_bytes(self) -> int:
         return sum(u["total_size"] for u in self._units if u["id"] in self.checked)
 
+    def _executable(self, u: dict) -> bool:
+        """单元是否可执行：READY 直接可执行；ST_BATCH（整目录）须人工改判解锁。"""
+        if u["status"] == READY:
+            return True
+        return u["status"] == ST_BATCH and bool(self.overrides.get(u["id"]))
+
     def checked_not_ready(self) -> list[dict]:
         """勾选了但状态不可执行的单元——UI 应禁用执行并在详情区提示。"""
         return [u for u in self._units
-                if u["id"] in self.checked and u["status"] != READY]
+                if u["id"] in self.checked and not self._executable(u)]
 
     def can_apply(self) -> bool:
         return bool(self.checked) and not self.checked_not_ready()

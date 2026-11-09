@@ -129,3 +129,91 @@ def test_plan_weak_rule_not_selected(tmp_path):
     assert u["default_selected"] is False
     assert plan["stats"]["ready"] == 1
     assert plan["stats"]["ready_levels"] == {"rule": 1}
+
+
+# ---------------- C9 整目录批次门禁（card-20261110-batch-gate） ----------------
+
+def _make_composite(cfg, name, *, genres=("西部",), plot="乡村爱情", tmdb="33"):
+    """造一个复合目录单元（两个不同影片 base + 一张 NFO）。"""
+    return make_movie(cfg.source_root, name, title=name,
+                      genres=genres, plot=plot, tmdb=tmdb,
+                      extra_files=[("另一部影片.mkv", b"V" * 1024)])
+
+
+def test_plan_composite_status_and_level(tmp_path):
+    from app.core.planner import ST_BATCH
+    cfg = load_config(build_env(tmp_path))
+    _make_composite(cfg, "Comp Dir")
+    plan = scan_and_plan(cfg)
+    assert plan["stats"]["total"] == 1
+    u = by_id(plan)["Comp Dir"]
+    assert u["status"] == ST_BATCH
+    assert u["level"] == "composite"
+    assert u["default_selected"] is False
+    assert u["target_lib"] == "兜底库"   # 占位：分类结果保留，需人工改判
+    assert u["composite"] is True
+
+
+def test_plan_composite_out_of_fallback_ratio(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    make_movie(cfg.source_root, "Unknown Film", title="Unknown",
+               genres=("西部",), plot="乡村爱情", tmdb="13")
+    make_movie(cfg.source_root, "Rule Film", title="Rule",
+               genres=("科幻",), tmdb="14")
+    _make_composite(cfg, "Comp Dir")
+    plan = scan_and_plan(cfg)
+    assert plan["stats"]["total"] == 3
+    assert plan["stats"]["composite"] == 1
+    assert plan["stats"]["fallback_ratio"] == 0.5   # 分母 2（3-1），而非 3
+
+
+def test_plan_stats_composite_count(tmp_path):
+    from app.core.planner import ST_BATCH
+    cfg = load_config(build_env(tmp_path))
+    _make_composite(cfg, "Comp Dir")
+    make_movie(cfg.source_root, "Rule Film", title="Rule",
+               genres=("科幻",), tmdb="14")
+    plan = scan_and_plan(cfg)
+    assert plan["stats"]["composite"] == 1
+    assert plan["stats"]["by_status"][ST_BATCH] == 1
+    assert plan["stats"]["by_status"]["ready"] == 1
+
+
+def test_refresh_stats_keeps_denominator(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    make_movie(cfg.source_root, "Unknown Film", title="Unknown",
+               genres=("西部",), plot="乡村爱情", tmdb="13")
+    make_movie(cfg.source_root, "Rule Film", title="Rule",
+               genres=("科幻",), tmdb="14")
+    _make_composite(cfg, "Comp Dir")
+    plan = scan_and_plan(cfg)
+    assert plan["stats"]["fallback_ratio"] == 0.5
+    save_plan(cfg.runtime_dir, plan)
+    mark_applied(cfg.runtime_dir, ["Comp Dir"])
+    plan2 = load_plan(cfg.runtime_dir)
+    assert plan2["stats"]["fallback_ratio"] == 0.5   # 分母仍排除 composite
+    assert plan2["stats"]["composite"] == 1
+
+
+def test_mark_undone_restores_batch_status(tmp_path):
+    from app.core.planner import ST_BATCH, mark_undone
+    cfg = load_config(build_env(tmp_path))
+    _make_composite(cfg, "Comp Dir")
+    plan = scan_and_plan(cfg)
+    save_plan(cfg.runtime_dir, plan)
+    mark_applied(cfg.runtime_dir, ["Comp Dir"])
+    assert load_plan(cfg.runtime_dir)["units"][0]["status"] == "applied"
+    mark_undone(cfg.runtime_dir, ["Comp Dir"])
+    u = load_plan(cfg.runtime_dir)["units"][0]
+    assert u["status"] == ST_BATCH   # 不得恢复成 READY
+
+
+def test_composite_conflict_detection(tmp_path):
+    from app.core.planner import ST_CONFLICT
+    cfg = load_config(build_env(tmp_path))
+    _make_composite(cfg, "Comp Dir", tmdb="33")
+    make_movie(cfg.fallback_path, "Comp Dir", title="Comp Dir",
+               genres=("动作",), tmdb="99")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["Comp Dir"]
+    assert u["status"] == ST_CONFLICT   # 硬状态优先于 ST_BATCH

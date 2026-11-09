@@ -26,12 +26,14 @@ ST_PLACED = "already_placed"
 ST_INCOMPLETE = "incomplete_leftover"
 ST_MULTI = "multi_version"
 ST_APPLIED = "applied"
+ST_BATCH = "batch_target"
 
 MARKER_PREFIX = ".incomplete-"
 
 STATUS_LABELS = {
     READY: "可执行", ST_CONFLICT: "同名冲突", ST_PLACED: "已在位",
     ST_INCOMPLETE: "半成品残留", ST_MULTI: "多版本需确认", ST_APPLIED: "已执行",
+    ST_BATCH: "整目录待改判",
 }
 
 
@@ -74,6 +76,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     learned = learned_store.load(cfg.runtime_dir)
     plan_units: list[dict] = []
     for u in units:
+        is_composite = getattr(u, "composite", False)
         dec = classify(u, cfg, learned)
         dst_dir = Path(dec.target_path) / u.dst_name
         status, conflict_kind, unotes = READY, None, []
@@ -103,6 +106,12 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
                     status, conflict_kind = ST_CONFLICT, "name"
                     unotes.append("目标库已存在同名文件夹（非同一部影片），按 skip 策略跳过")
 
+        # 复合目录（一部影片一张 NFO 不能代表整个目录）→ ST_BATCH：
+        # 永不默认勾选、不进兜底率分母、无人工改判不可执行；
+        # 冲突检测得出的硬状态（同名冲突/已在位/半成品）优先于 ST_BATCH。
+        if is_composite and status == READY:
+            status = ST_BATCH
+
         plan_units.append({
             "id": u.id,
             "kind": u.kind,
@@ -114,7 +123,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "dst_name": u.dst_name,
             "target_lib": dec.target,
             "target_root": dec.target_path,
-            "level": dec.level,
+            "level": "composite" if is_composite else dec.level,
             "reason": dec.reason,
             "evidence": list(dec.evidence) + ([f"NFO 已容错恢复：{u.nfo.recovery}"] if (u.nfo and u.nfo.recovery) else []),
             "confidence": dec.confidence,
@@ -126,10 +135,11 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "multi_cd": u.multi_cd,
             "disc": u.disc,
             "flags": list(u.flags),
+            "composite": is_composite,
             "status": status,
             "conflict_kind": conflict_kind,
             "notes": unotes,
-            "default_selected": status == READY and (
+            "default_selected": status == READY and not is_composite and (
                 (dec.level == "rule" and dec.confidence != "low")
                 or (dec.level == "learned" and dec.confidence == "medium")),
             "applied": False,
@@ -140,6 +150,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
         })
 
     # 同 provider id 多版本 → 默认排除出批量执行
+    # （本组仅 READY 单元参与，复合单元 status 为 ST_BATCH 天然被排除，无需另判。）
     by_provider: dict[str, list[dict]] = {}
     for pu in plan_units:
         if pu["status"] == READY and pu["provider"]:
@@ -157,6 +168,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     status_counter = Counter(pu["status"] for pu in plan_units)
     ready_levels = Counter(pu["level"] for pu in plan_units if pu["status"] == READY)
     total = len(plan_units)
+    composite_count = sum(1 for pu in plan_units if pu["composite"])
     fb = ready_levels.get("fallback", 0)
     unmapped_counter = Counter(g for pu in plan_units for g in pu["unmapped"])
 
@@ -172,7 +184,9 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "ready": status_counter.get(READY, 0),
             "by_status": dict(status_counter),
             "ready_levels": dict(ready_levels),
-            "fallback_ratio": (fb / total) if total else 0.0,
+            "composite": composite_count,
+            "fallback_ratio": (fb / (total - composite_count))
+                              if total - composite_count else 0.0,
             "no_nfo": sum(1 for pu in plan_units if not pu["nfo_path"]),
             "unmapped_genres": dict(unmapped_counter),
             "total_size": sum(pu["total_size"] for pu in plan_units),
@@ -249,7 +263,11 @@ def _refresh_stats(plan: dict) -> None:
     st["ready"] = sc.get(READY, 0)
     st["ready_levels"] = dict(ready_levels)
     total = st.get("total") or len(plan["units"])
-    st["fallback_ratio"] = (ready_levels.get("fallback", 0) / total) if total else 0.0
+    # 兜底率分母排除复合单元（按 composite 标记计数，不随 ST_APPLIED 漂移）
+    composite_count = sum(1 for pu in plan["units"] if pu.get("composite"))
+    st["composite"] = composite_count
+    denom = total - composite_count
+    st["fallback_ratio"] = (ready_levels.get("fallback", 0) / denom) if denom else 0.0
 
 
 def mark_applied(runtime_dir: Path, ids: list[str]) -> None:
@@ -274,6 +292,6 @@ def mark_undone(runtime_dir: Path, ids: list[str]) -> None:
     for pu in plan["units"]:
         if pu["id"] in idset:
             pu["applied"] = False
-            pu["status"] = READY
+            pu["status"] = ST_BATCH if pu.get("composite") else READY
     _refresh_stats(plan)
     save_plan(runtime_dir, plan)

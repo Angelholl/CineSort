@@ -367,3 +367,18 @@ def test_title_badge_and_filter(units):
     model = vm.PlanViewModel(units + [t])
     model.set_filter("title")
     assert [r["id"] for r in model.rows()] == ["G 标题"]
+
+
+def test_composite_gate_requires_override():
+    """ST_BATCH 复合单元：无人工改判不得执行，改判后解锁（card-20261110-batch-gate）。"""
+    u = make_unit("G 整目录", level="composite", status=planner.ST_BATCH,
+                  lib="兜底库", default_selected=False, genres=())
+    model = vm.PlanViewModel([u])
+    model.checked.add(u["id"])
+    assert u["id"] in {x["id"] for x in model.checked_not_ready()}
+    assert model.can_apply() is False
+    assert model._executable(u) is False
+    model.set_override(u["id"], "科幻")
+    assert model._executable(u) is True
+    assert model.checked_not_ready() == []
+    assert model.can_apply() is True
