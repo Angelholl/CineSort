@@ -116,7 +116,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "target_root": dec.target_path,
             "level": dec.level,
             "reason": dec.reason,
-            "evidence": dec.evidence,
+            "evidence": list(dec.evidence) + ([f"NFO 已容错恢复：{u.nfo.recovery}"] if (u.nfo and u.nfo.recovery) else []),
             "confidence": dec.confidence,
             "genres": genres,
             "unmapped": unmapped,

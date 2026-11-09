@@ -94,3 +94,16 @@ def test_mark_applied_roundtrip(tmp_path):
     save_plan(cfg.runtime_dir, plan)
     mark_applied(cfg.runtime_dir, ["Mark Film"])
     assert load_plan(cfg.runtime_dir)["units"][0]["status"] == "applied"
+
+
+def test_plan_evidence_notes_recovery(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    d = make_movie(cfg.source_root, "Recovery Film", title="Recovery",
+                   genres=("科幻",), tmdb="21")
+    (d / "movie.nfo").write_text(
+        '<movie><title>Recovery</title><genre>科幻</genre><plot>太空</plot>'
+        '<uniqueid type="tmdb">21</uniqueid><7mmtvid>x</7mmtvid></movie>',
+        encoding="utf-8")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["Recovery Film"]
+    assert any(e.startswith("NFO 已容错恢复") for e in u["evidence"])

@@ -1,7 +1,8 @@
 """NFO 解析容错测试（评议条件 C1：≥12 个现实变体）。"""
 import codecs
 
-from app.core.nfo import normalize_key, parse_nfo_file, parse_nfo_text
+from app.core.nfo import (NfoInfo, _fill_from_regex, normalize_key,
+                          parse_nfo_file, parse_nfo_text)
 from conftest import nfo_xml
 
 
@@ -112,3 +113,67 @@ def test_undecodable_returns_error(tmp_path):
     info = parse_nfo_file(write(tmp_path, bytes(range(0x80, 0x100)) * 4))
     assert info.parse_error
     assert info.genres == []
+
+
+DIGIT_TAG_TEXT = ("<movie><title>T</title><genre>动作</genre><plot>p</plot>"
+                  "<7mmtvid>wKV281</7mmtvid></movie>")
+
+
+def test_digit_leading_tag_recovers_via_xml():
+    info = parse_nfo_text(DIGIT_TAG_TEXT)
+    assert info.parse_mode == "xml"
+    assert info.parse_error is None
+    assert info.title == "T"
+    assert info.genres == ["动作"]
+    assert info.plot == "p"
+
+
+def test_digit_tag_recovery_recorded():
+    info = parse_nfo_text(DIGIT_TAG_TEXT)
+    assert "数字开头" in info.recovery
+
+
+def test_digit_rewrite_leaves_wellformed_untouched():
+    info = parse_nfo_text(nfo_xml())
+    assert info.parse_mode == "xml"
+    assert info.recovery == ""
+    assert info.parse_error is None
+
+
+def test_digit_tag_xml_and_regex_paths_agree():
+    xml_info = parse_nfo_text(DIGIT_TAG_TEXT)
+    regex_info = NfoInfo()
+    _fill_from_regex(regex_info, DIGIT_TAG_TEXT)
+    assert xml_info.genres == regex_info.genres
+    assert xml_info.title == regex_info.title
+    assert xml_info.plot == regex_info.plot
+
+
+def test_bare_javdbid_becomes_provider():
+    info = parse_nfo_text(
+        "<movie><title>T</title><genre>动作</genre><javdbid>wKV281</javdbid></movie>")
+    assert info.uniqueids == {"javdb": "wKV281"}
+    assert info.provider_id == "javdb:wKV281"
+
+
+def test_bare_tmdbid_merges_scheme():
+    info = parse_nfo_text("<movie><tmdbid>42</tmdbid></movie>")
+    assert info.provider_id == "tmdb:42"
+
+
+def test_uniqueid_attr_beats_bare_id():
+    info = parse_nfo_text(
+        '<movie><uniqueid type="tmdb">1</uniqueid><tmdbid>2</tmdbid></movie>')
+    assert info.uniqueids["tmdb"] == "1"
+
+
+def test_bare_id_regex_path():
+    info = parse_nfo_text(
+        "<movie><genre>恐怖</genre><javdbid>wKV281</javdbid>")
+    assert info.parse_mode == "regex"
+    assert info.uniqueids == {"javdb": "wKV281"}
+
+
+def test_bare_id_ignores_empty_and_plain_id():
+    info = parse_nfo_text("<movie><id>plain</id><javdbid></javdbid></movie>")
+    assert info.uniqueids == {}

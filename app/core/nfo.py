@@ -15,18 +15,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _RE_DECL_ENC = re.compile(rb'<\?xml[^>]*encoding=["\']([A-Za-z0-9._-]+)["\']')
-_RE_MOVIE_BLOCK = re.compile(r"<movie[\s>].*?</movie\s*>", re.S | re.I)
+_RE_MOVIE_BLOCK = re.compile(r"<movie[\s>].*?</movie\s*>", re.DOTALL | re.IGNORECASE)
 _RE_BARE_AMP = re.compile(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9A-Fa-f]+;)")
-_RE_GENRE_TAG = re.compile(r"<genre[^>]*>(.*?)</genre\s*>", re.S | re.I)
-_RE_PLOT_TAG = re.compile(r"<plot[^>]*>(.*?)</plot\s*>", re.S | re.I)
-_RE_TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title\s*>", re.S | re.I)
-_RE_YEAR_TAG = re.compile(r"<year[^>]*>(.*?)</year\s*>", re.S | re.I)
+_RE_GENRE_TAG = re.compile(r"<genre[^>]*>(.*?)</genre\s*>", re.DOTALL | re.IGNORECASE)
+_RE_PLOT_TAG = re.compile(r"<plot[^>]*>(.*?)</plot\s*>", re.DOTALL | re.IGNORECASE)
+_RE_TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title\s*>", re.DOTALL | re.IGNORECASE)
+_RE_YEAR_TAG = re.compile(r"<year[^>]*>(.*?)</year\s*>", re.DOTALL | re.IGNORECASE)
 _RE_UNIQUEID_TAG = re.compile(
-    r"<uniqueid[^>]*type=[\"']([^\"']*)[\"'][^>]*>([^<]*)</uniqueid\s*>", re.S | re.I)
+    r"<uniqueid[^>]*type=[\"']([^\"']*)[\"'][^>]*>([^<]*)</uniqueid\s*>", re.DOTALL | re.IGNORECASE)
 _RE_ID_TAG = re.compile(
-    r"<id[^>]*moviedb=[\"']([^\"']*)[\"'][^>]*>([^<]*)</id\s*>", re.S | re.I)
+    r"<id[^>]*moviedb=[\"']([^\"']*)[\"'][^>]*>([^<]*)</id\s*>", re.DOTALL | re.IGNORECASE)
 _GENRE_SPLIT = re.compile(r"[,，/;；|、]+")
 _STRIP_TAGS = re.compile(r"<[^>]+>")
+_RE_DIGIT_TAG = re.compile(r"<(/?)(\d[^\s>/]*)")
+_RE_BARE_ID_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9_]*id)>([^<]*)</\1\s*>", re.IGNORECASE)
 _ENC_CHAIN = ("utf-8", "gb18030", "cp1252")
 
 
@@ -40,6 +42,7 @@ class NfoInfo:
     encoding: str = ""
     parse_mode: str = "xml"          # xml | regex
     parse_error: str | None = None
+    recovery: str = ""
 
     @property
     def provider_id(self) -> str | None:
@@ -111,6 +114,7 @@ def _find_movie(root: ET.Element) -> ET.Element:
 
 def _fill_from_xml(info: NfoInfo, root: ET.Element) -> None:
     movie = _find_movie(root)
+    bare_ids: dict[str, str] = {}
     for el in movie.iter():
         t = _local(el.tag)
         text = (el.text or "").strip()
@@ -131,6 +135,12 @@ def _fill_from_xml(info: NfoInfo, root: ET.Element) -> None:
             db = (el.get("moviedb") or "").strip().lower()
             if db and text:
                 info.uniqueids.setdefault(db, text)
+        elif t.endswith("id") and len(t) > 2 and not el.attrib and text:
+            scheme = t[:-2].lower()
+            if scheme:
+                bare_ids.setdefault(scheme, text)
+    for s, v in bare_ids.items():
+        info.uniqueids.setdefault(s, v)
     # 去重保序
     info.genres = list(dict.fromkeys(info.genres))
 
@@ -161,6 +171,11 @@ def _fill_from_regex(info: NfoInfo, text: str) -> None:
         typ, val = m.group(1).strip().lower(), m.group(2).strip()
         if typ and val:
             info.uniqueids.setdefault(typ, val)
+    for m in _RE_BARE_ID_TAG.finditer(text):
+        name, val = m.group(1), m.group(2).strip()
+        scheme = name[:-2].lower() if len(name) > 3 else ""
+        if scheme and val:
+            info.uniqueids.setdefault(scheme, val)
 
 
 def parse_nfo_text(text: str) -> NfoInfo:
@@ -178,6 +193,7 @@ def parse_nfo_text(text: str) -> NfoInfo:
             try:
                 root = ET.fromstring(m.group(0))
                 err = None
+                info.recovery = "截取 movie 块"
             except ET.ParseError as exc:
                 err = f"{err}; {exc}"
     if root is None:                              # 裸 & 等非法实体
@@ -185,14 +201,33 @@ def parse_nfo_text(text: str) -> NfoInfo:
         try:
             root = ET.fromstring(escaped)
             err = None
+            info.recovery = "转义裸 &"
         except ET.ParseError:
             m = _RE_MOVIE_BLOCK.search(escaped)
             if m:
                 try:
                     root = ET.fromstring(m.group(0))
                     err = None
+                    info.recovery = "转义裸 & + 截取 movie 块"
                 except ET.ParseError as exc:
                     err = f"{err}; {exc}"
+    if root is None:                              # 数字开头元素名（JavDB <7mmtvid>）
+        rewritten = _RE_DIGIT_TAG.sub(r"<\1_\2", _RE_BARE_AMP.sub("&amp;", text))
+        if rewritten != text:
+            for cand in (rewritten,):
+                try:
+                    root = ET.fromstring(cand)
+                    err = None
+                    info.recovery = "重写数字开头元素名（如 <7mmtvid> → <_7mmtvid>）"
+                except ET.ParseError:
+                    m = _RE_MOVIE_BLOCK.search(rewritten)
+                    if m:
+                        try:
+                            root = ET.fromstring(m.group(0))
+                            err = None
+                            info.recovery = "重写数字开头元素名 + 截取 movie 块"
+                        except ET.ParseError as exc:
+                            err = f"{err}; {exc}"
     if root is not None:
         info.parse_mode = "xml"
         _fill_from_xml(info, root)
