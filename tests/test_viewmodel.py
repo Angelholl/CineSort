@@ -19,11 +19,12 @@ def make_unit(uid: str, *, level="rule", status=READY, lib="科幻", conf="high"
     """按 planner 真实字段造 unit（只造 viewmodel 用到的键 + 少量上下文）。
 
     注意 status 与 level 相互独立：fallback/plot 级别的单元同样可以是 READY。
-    default_selected 缺省时复刻 planner 的规则（READY 且规则级 / 自学习且中置信）。
+    default_selected 缺省时复刻 planner 的规则（READY 且规则级 / 自学习且中置信）。弱规则（low）不默认勾选。
     """
     if default_selected is None:
         default_selected = status == READY and (
-            level == "rule" or (level == "learned" and conf == "medium"))
+            (level == "rule" and conf != "low")
+            or (level == "learned" and conf == "medium"))
     return {
         "id": uid,
         "label": label or uid,

@@ -99,3 +99,70 @@ def test_score_plot_evidence():
 def test_map_genres_alias():
     mapped, unmapped = map_genres(make_cfg(), ["scifi", "科幻", "西部"])
     assert mapped == ["科幻"] and unmapped == ["西部"]
+
+# 卡 C4（D-20261109-01）：弱标签裁决语义。弱命中永不与强命中同台竞争；
+# 唯一命中且来自弱标签 → rule/low → 默认不勾选（不自动改判，降为人工复核）。
+
+
+def weak_cfg(tmp_path, overrides=None):
+    """build_env 默认环境 + overrides（genre_aliases / weak_genre_aliases / genre_priority）。"""
+    from conftest import build_env
+
+    from app.core.config import load_config
+
+    return load_config(build_env(tmp_path, overrides=overrides))
+
+
+def test_weak_only_single_hit_low_confidence(tmp_path):
+    cfg = weak_cfg(tmp_path, {"weak_genre_aliases": {"护士": "动作"}})
+    d = classify(unit(("护士",)), cfg)
+    assert d.level == "rule"
+    assert d.confidence == "low"
+    assert d.target == "动作"
+    assert any("弱标签" in e for e in d.evidence)
+    assert "（弱标签）" in d.reason
+
+
+def test_weak_cannot_beat_strong(tmp_path):
+    cfg = weak_cfg(tmp_path, {"weak_genre_aliases": {"护士": "动作"},
+                              "genre_priority": ["动作", "科幻"]})
+    d = classify(unit(("护士", "Sci-Fi")), cfg)
+    assert d.target == "科幻"
+    assert d.confidence == "high"
+
+
+def test_multiple_weak_candidates_use_priority(tmp_path):
+    cfg = weak_cfg(tmp_path, {"weak_genre_aliases": {"护士": "动作", "空姐": "科幻"},
+                              "genre_priority": ["科幻", "动作"]})
+    d = classify(unit(("护士", "空姐")), cfg)
+    assert d.target == "科幻"
+    assert d.confidence == "low"
+
+
+def test_strong_only_unchanged(tmp_path):
+    cfg = weak_cfg(tmp_path)
+    d = classify(unit(("Sci-Fi",)), cfg)
+    assert d.confidence == "high"
+    assert d.target == "科幻"
+    assert not any("弱标签" in e for e in d.evidence)
+    assert "（弱标签）" not in d.reason
+
+
+def test_same_lib_strong_and_weak_not_demoted(tmp_path):
+    cfg = weak_cfg(tmp_path, {"weak_genre_aliases": {"sf2": "科幻"}})
+    d = classify(unit(("Sci-Fi", "sf2")), cfg)
+    assert d.confidence == "high"
+    assert d.target == "科幻"
+
+
+def test_map_genres_ex_shapes(tmp_path):
+    from app.core.classifier import map_genres_ex
+
+    cfg = weak_cfg(tmp_path, {"weak_genre_aliases": {"护士": "动作"}})
+    strong, weak, unmapped = map_genres_ex(
+        cfg, ["Sci-Fi", "护士", "西部", "scifi"])
+    assert strong == ["科幻"]
+    assert weak == ["动作"]
+    assert unmapped == ["西部"]
+    s, u = map_genres(cfg, ["Sci-Fi", "护士", "西部", "scifi"])
+    assert s == strong and u == unmapped

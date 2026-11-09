@@ -43,19 +43,39 @@ def alias_map(cfg: Config) -> dict[str, str]:
     return amap
 
 
-def map_genres(cfg: Config, genres: list[str]) -> tuple[list[str], list[str]]:
-    """返回 (映射到的库名列表-去重保序, 未映射题材列表)。"""
-    amap = alias_map(cfg)
-    mapped: list[str] = []
+def weak_alias_map(cfg: Config) -> dict[str, str]:
+    """弱别名归一键 → 库名（弱信号：唯一命中时降级，永不压过强命中）。"""
+    return {normalize_key(k): v for k, v in cfg.weak_genre_aliases.items()
+            if v in cfg.libraries}
+
+
+def map_genres_ex(cfg: Config,
+                  genres: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """返回 (强命中库, 弱命中库, 未映射题材)，各自保序去重；同名键强表胜出。"""
+    smap = alias_map(cfg)
+    wmap = weak_alias_map(cfg)
+    strong: list[str] = []
+    weak: list[str] = []
     unmapped: list[str] = []
     for g in genres:
-        target = amap.get(normalize_key(g))
+        target = smap.get(normalize_key(g))
         if target:
-            if target not in mapped:
-                mapped.append(target)
+            if target not in strong:
+                strong.append(target)
         else:
-            unmapped.append(g)
-    return mapped, unmapped
+            wtarget = wmap.get(normalize_key(g))
+            if wtarget:
+                if wtarget not in weak:
+                    weak.append(wtarget)
+            else:
+                unmapped.append(g)
+    return strong, weak, unmapped
+
+
+def map_genres(cfg: Config, genres: list[str]) -> tuple[list[str], list[str]]:
+    """返回 (映射到的库名列表-去重保序, 未映射题材列表)。"""
+    s, _w, u = map_genres_ex(cfg, genres)
+    return s, u
 
 
 def score_plot(plot: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
@@ -97,7 +117,8 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
     nfo = getattr(unit, "nfo", None)
     plot = (nfo.plot if nfo else "") or ""
     genres = list(nfo.genres) if nfo else []
-    mapped, unmapped = map_genres(cfg, genres)
+    mapped_s, mapped_w, unmapped = map_genres_ex(cfg, genres)
+    mapped = mapped_s + [w for w in mapped_w if w not in mapped_s]
     min_votes = max(int(cfg.learning.min_votes), 1)
 
     # 未映射题材的自学习命中：达阈值自动生效，未达阈值作低置信建议
@@ -149,10 +170,12 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
                         "medium" if votes >= min_votes else "low")
 
     def rule_pick(extra: str = "") -> Decision:
+        weak_only = bool(mapped_w) and not mapped_s
+        candidates = mapped_s or mapped_w
         votes_map = {n: votes_for(learned, genres, n) for n in mapped}
         # 优先级表为主；未列入优先级的库之间按历史倾向（自学习票数）裁决
         decl = {n: i for i, n in enumerate(cfg.libraries)}
-        winner = min(mapped, key=lambda n: (*_rank(cfg, n), -votes_map[n], decl[n]))
+        winner = min(candidates, key=lambda n: (*_rank(cfg, n), -votes_map[n], decl[n]))
         rank = _rank(cfg, winner)
         ev = []
         for g in genres:
@@ -161,6 +184,10 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
                 t = mm[0]
                 ev.append(f"题材『{g}』→ {t}（优先级第 {rank[1] + 1} 位）"
                           if t == winner else f"题材『{g}』→ {t}")
+        if weak_only:
+            wmap = weak_alias_map(cfg)
+            trig = "、".join(g for g in genres if wmap.get(normalize_key(g)) == winner)
+            ev.append(f"弱标签『{trig}』→ {winner}（弱信号，默认不勾选）")
         if unmapped:
             ev.append("未映射题材：" + "、".join(unmapped))
         if any(votes_map.values()):
@@ -171,9 +198,11 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
         if len(mapped) > 1 and cfg.strategy == "smart" and scoring:
             ev.append("候选库摘要评分：" + "；".join(
                 f"{n}={s:.1f}" for n, s, _ in scoring if n in mapped))
+        conf = "low" if weak_only else "high"
         return Decision(winner, str(cfg.libraries[winner].path), LEVEL_RULE,
-                        f"题材规则命中『{winner}』" + (f"（{extra}）" if extra else ""),
-                        ev, "high")
+                        f"题材规则命中『{winner}』" + (f"（{extra}）" if extra else "")
+                        + ("（弱标签）" if weak_only else ""),
+                        ev, conf)
 
     if not genres:
         if best and best[1] >= cfg.plot.min_score:

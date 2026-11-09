@@ -130,7 +130,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "conflict_kind": conflict_kind,
             "notes": unotes,
             "default_selected": status == READY and (
-                dec.level == "rule"
+                (dec.level == "rule" and dec.confidence != "low")
                 or (dec.level == "learned" and dec.confidence == "medium")),
             "applied": False,
             "files": [[rel, size, mtime] for rel, size, mtime in u.files],

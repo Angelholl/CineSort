@@ -107,3 +107,19 @@ def test_plan_evidence_notes_recovery(tmp_path):
     plan = scan_and_plan(cfg)
     u = by_id(plan)["Recovery Film"]
     assert any(e.startswith("NFO 已容错恢复") for e in u["evidence"])
+
+def test_plan_weak_rule_not_selected(tmp_path):
+    """弱标签唯一命中 → rule/low：计入 ready 的 rule 而非 fallback，但默认不勾选。"""
+    cfg = load_config(build_env(tmp_path, overrides={
+        "weak_genre_aliases": {"护士": "动作"}}))
+    make_movie(cfg.source_root, "Weak Film", title="Weak Film",
+               genres=("护士",), tmdb="88")
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["Weak Film"]
+    assert u["status"] == "ready"
+    assert u["level"] == "rule" and u["confidence"] == "low"
+    assert u["target_lib"] == "动作"
+    assert u["target_root"] == str(cfg.libraries["动作"].path)
+    assert u["default_selected"] is False
+    assert plan["stats"]["ready"] == 1
+    assert plan["stats"]["ready_levels"] == {"rule": 1}
