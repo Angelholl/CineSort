@@ -1,9 +1,15 @@
 """NFO 解析容错测试（评议条件 C1：≥12 个现实变体）。"""
 import codecs
 
-from app.core.nfo import (NfoInfo, _fill_from_regex, normalize_key,
-                          parse_nfo_file, parse_nfo_text)
 from conftest import nfo_xml
+
+from app.core.nfo import (
+    NfoInfo,
+    _fill_from_regex,
+    normalize_key,
+    parse_nfo_file,
+    parse_nfo_text,
+)
 
 
 def write(tmp_path, data: bytes, name="movie.nfo"):
@@ -177,3 +183,36 @@ def test_bare_id_regex_path():
 def test_bare_id_ignores_empty_and_plain_id():
     info = parse_nfo_text("<movie><id>plain</id><javdbid></javdbid></movie>")
     assert info.uniqueids == {}
+
+
+def test_url_valued_bare_id_is_not_an_identifier():
+    """值像 URL 的裸 id 标签（<iqqtvid>https://…）不是稳定标识，不得进 uniqueids（xml 与 regex 两档一致）。"""
+    xml_info = parse_nfo_text(
+        "<movie><title>T</title><genre>动作</genre>"
+        "<javdbid>wKV281</javdbid><iqqtvid>https://iqq5.xyz/jp/player.php?uuid=a</iqqtvid></movie>")
+    assert xml_info.uniqueids == {"javdb": "wKV281"}
+    regex_info = parse_nfo_text(
+        "<movie><genre>动作</genre><iqqtvid>https://iqq5.xyz/x</iqqtvid>")
+    assert regex_info.parse_mode == "regex"
+    assert regex_info.uniqueids == {}
+    assert regex_info.provider_id is None
+
+
+def test_rewritten_digit_tag_never_becomes_provider_id():
+    """重写产物 <_7mmtvid> 不得进入 uniqueids，否则 provider id 被 URL 污染且随元素顺序漂移。"""
+    info = parse_nfo_text(
+        "<movie><title>T</title><genre>动作</genre>"
+        "<7mmtvid>https://x</7mmtvid><javdbid>wKV281</javdbid></movie>")
+    assert info.parse_mode == "xml"
+    assert info.recovery
+    assert info.uniqueids == {"javdb": "wKV281"}
+    assert info.provider_id == "javdb:wKV281"
+
+
+def test_digit_tag_only_file_has_no_provider_id():
+    """只有被重写的外部链接标签时，不应凭空产生 provider id。"""
+    info = parse_nfo_text(
+        "<movie><title>T</title><genre>动作</genre><7mmtvid>https://x</7mmtvid></movie>")
+    assert info.parse_mode == "xml"
+    assert info.uniqueids == {}
+    assert info.provider_id is None

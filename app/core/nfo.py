@@ -135,9 +135,12 @@ def _fill_from_xml(info: NfoInfo, root: ET.Element) -> None:
             db = (el.get("moviedb") or "").strip().lower()
             if db and text:
                 info.uniqueids.setdefault(db, text)
-        elif t.endswith("id") and len(t) > 2 and not el.attrib and text:
+        elif (t.endswith("id") and len(t) > 2 and not t.startswith("_")
+              and not el.attrib and text and "://" not in text):
+            # 下划线开头＝第 4 级容错的重写产物（<7mmtvid>→<_7mmtvid>）；值像 URL 的（<iqqtvid>）不是
+            # 稳定标识。两者都不算真 id，不得进 uniqueids，否则 provider id 被污染且随元素顺序漂移
             scheme = t[:-2].lower()
-            if scheme:
+            if scheme and scheme[0].isalpha():
                 bare_ids.setdefault(scheme, text)
     for s, v in bare_ids.items():
         info.uniqueids.setdefault(s, v)
@@ -174,7 +177,7 @@ def _fill_from_regex(info: NfoInfo, text: str) -> None:
     for m in _RE_BARE_ID_TAG.finditer(text):
         name, val = m.group(1), m.group(2).strip()
         scheme = name[:-2].lower() if len(name) > 3 else ""
-        if scheme and val:
+        if scheme and val and "://" not in val:
             info.uniqueids.setdefault(scheme, val)
 
 
