@@ -7,14 +7,16 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from conftest import build_env, make_movie
 
 from app.core import jobs as jobs_mod
-from app.core import preflight
+from app.core import preflight, scanner
 from app.core.config import ConfigError, load_config
 from app.core.journal import list_sessions
+from app.core.planner import build_plan
 from app.state import AppState
 
 
@@ -234,3 +236,114 @@ def test_apply_session_output_inside_source_rejected(env_state):
     assert "输出目录不可用" in st["error"]
     assert (env.source_root / "Space War (2021)").is_dir()
     assert (env.source_root / "Gun Fight (2022)").is_dir()
+
+
+# ---------------- 三层布局执行链（D-20261110-01，Task-03） ----------------
+
+def _make_actress_env(tmp_path):
+    """女优容器环境：build_env + 源根下一乃あおい/ABC-1 科幻单元。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root / "一乃あおい", "ABC-1", title="ABC-1",
+               genres=("科幻",), plot="太空宇宙", tmdb="31")
+    return AppState(cfg_path), cfg
+
+
+def test_apply_drilled_unit_three_layer_layout(tmp_path):
+    state, cfg = _make_actress_env(tmp_path)
+    scifi = cfg.libraries["科幻"].path
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    state.start_apply(["一乃あおい/ABC-1"], {"jellyfin_running"}, {})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["moved"] == 1
+    assert (scifi / "一乃あおい" / "ABC-1").is_dir()
+    assert not (cfg.source_root / "一乃あおい" / "ABC-1").exists()
+    assert (cfg.source_root / "一乃あおい").is_dir()   # 空壳=规格接受的残留
+    assert state.plan()["stats"]["by_status"]["applied"] == 1
+
+
+def test_apply_drilled_unit_creates_actress_dir(tmp_path):
+    """库内无该女优目录：dst.parent.mkdir 自动创建女优层。"""
+    state, cfg = _make_actress_env(tmp_path)
+    make_movie(cfg.source_root / "新人子", "XYZ-1", title="XYZ-1",
+               genres=("科幻",), plot="太空宇宙", tmdb="32")
+    scifi = cfg.libraries["科幻"].path
+    assert not (scifi / "新人子").exists()
+    state.start_scan()
+    wait_job(state)
+    state.start_apply(["新人子/XYZ-1"], {"jellyfin_running"}, {})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert (scifi / "新人子" / "XYZ-1").is_dir()
+
+
+def test_apply_session_output_grouped_three_layers(tmp_path):
+    state, cfg = _make_actress_env(tmp_path)
+    out = cfg.path.parent / "本次输出"
+    state.start_scan()
+    wait_job(state)
+    out.mkdir(parents=True, exist_ok=True)
+    state.start_apply(["一乃あおい/ABC-1"], {"jellyfin_running"}, {},
+                      output_root=str(out), group_by_category=True)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert (out / "科幻" / "一乃あおい" / "ABC-1").is_dir()
+
+
+def test_apply_session_output_flat_keeps_actress_layer(tmp_path):
+    state, cfg = _make_actress_env(tmp_path)
+    out = cfg.path.parent / "本次输出"
+    state.start_scan()
+    wait_job(state)
+    out.mkdir(parents=True, exist_ok=True)
+    state.start_apply(["一乃あおい/ABC-1"], {"jellyfin_running"}, {},
+                      output_root=str(out), group_by_category=False)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert (out / "一乃あおい" / "ABC-1").is_dir()
+    assert (out / "科幻").exists() is False
+
+
+def test_undo_drilled_unit_preserves_library_siblings(tmp_path):
+    """undo 只回滚本次放入的影片目录，绝不动女优目录里的原有兄弟影片。"""
+    state, cfg = _make_actress_env(tmp_path)
+    scifi = cfg.libraries["科幻"].path
+    make_movie(scifi / "一乃あおい", "KEEP-1", genres=("科幻",), tmdb="77")
+    state.start_scan()
+    wait_job(state)
+    state.start_apply(["一乃あおい/ABC-1"], {"jellyfin_running"}, {})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert (scifi / "一乃あおい" / "KEEP-1").is_dir()
+    sess = list_sessions(state.runtime_dir() / "journals")[0]["file"]
+    state.start_undo(sess)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["restored"] == 1
+    assert (cfg.source_root / "一乃あおい" / "ABC-1").is_dir()
+    assert (scifi / "一乃あおい" / "KEEP-1").is_dir()
+
+
+def test_preflight_long_path_warns_on_three_layer_dst(tmp_path):
+    """三层路径超 240 字符 → long_paths warn（维持 warn 不升级 block）。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root / ("あ" * 80), "長" * 120,
+               genres=("科幻",), plot="太空宇宙", tmdb="41")
+    units, notes = scanner.scan_source_root(cfg)
+    plan = build_plan(cfg, units, notes)
+    items = preflight.run_preflight(cfg, plan)
+    lp = [i for i in items if i["code"] == "long_paths"]
+    assert lp and lp[0]["level"] == "warn"
+    assert any(("長" * 120) in d for d in lp[0]["detail"])
+
+
+def test_jobs_dst_combination_uses_planner_single_point():
+    """组合单点架构钉：jobs 的 dst 改写一律经 planner.unit_dst_dir。"""
+    src = Path(jobs_mod.__file__).read_text(encoding="utf-8")
+    assert src.count("unit_dst_dir(") >= 2   # 人工改判 + 会话输出两分支
+    assert "session_dst_root(" in src
+    assert '/ u["dst_name"]' not in src

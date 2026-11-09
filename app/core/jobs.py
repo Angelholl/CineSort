@@ -20,6 +20,7 @@ from .planner import (
     mark_undone,
     save_plan,
     session_dst_root,
+    unit_dst_dir,
 )
 
 
@@ -164,7 +165,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
                 raise RuntimeError(f"无效的覆盖目标：{ov}")
             u["target_lib"] = ov
             u["target_root"] = str(lib.path)
-        u["dst_dir"] = str(Path(u["target_root"]) / u["dst_name"])
+        u["dst_dir"] = str(unit_dst_dir(u["target_root"], u.get("actress"), u["dst_name"]))
         u["evidence"] = list(u["evidence"]) + ["目标库由人工指定"]
 
     # 本次输出目录（会话级覆盖，只计算不改盘）
@@ -177,7 +178,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
         for u in units:
             root = session_dst_root(out, u["target_lib"], group_by_category)
             u["target_root"] = str(root)
-            u["dst_dir"] = str(root / u["dst_name"])   # 复用 planner 组合规则
+            u["dst_dir"] = str(unit_dst_dir(root, u.get("actress"), u["dst_name"]))
             u["evidence"] = list(u["evidence"]) + ["本次输出目录（会话级，不改全局配置）"]
         extra_roots = sorted({fsops.staging_for_root(Path(u["target_root"]))
                               for u in units}, key=str)
@@ -228,6 +229,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
             try:
                 staging = fsops.staging_for_root(Path(u["target_root"]))
                 if u["kind"] == "dir":
+                    dst.parent.mkdir(parents=True, exist_ok=True)  # 女优目录缺失时自动创建
                     info = fsops.transfer_dir(src, dst, staging, expected)
                 else:
                     files_abs = [src.parent / rel for rel in expected]
