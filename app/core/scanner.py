@@ -33,14 +33,14 @@ EXCLUDED_DIRS = {
 }
 
 RE_MULTI_CD = re.compile(
-    r"^(.*?)[\s._\-(]*(?:cd|dvd|part|pt|disc|dis[kc])[\s._\-(]*(\d{1,2})[\s._\)-]*$", re.I)
-RE_SAMPLE = re.compile(r"(^|[.\-_ ])(sample|trailer|prologue)([.\-_ ]|$)", re.I)
+    r"^(.*?)[\s._\-(]*(?:cd|dvd|part|pt|disc|dis[kc])[\s._\-(]*(\d{1,2})[\s._\)-]*$", re.IGNORECASE)
+RE_SAMPLE = re.compile(r"(^|[.\-_ ])(sample|trailer|prologue)([.\-_ ]|$)", re.IGNORECASE)
 # 已刮削文件夹常见的花絮/预告/附加视频（尾部锚定，避免误伤正片标题）
 RE_SUPPLEMENT = re.compile(
     r"(?:^|[\s._\-[(])(?:sample|trailers?|prologue|featurettes?|interviews?"
     r"|behind[\s._\-]?the[\s._\-]?scenes?|deleted[\s._\-]?scenes?|extended[\s._\-]?scenes?"
     r"|making[\s._\-]?of|extras?|scenes?|shorts?|bonus)"
-    r"(?:[\s._\-]*(?:\d{1,4}|[a-z]{1,3}))?$", re.I)
+    r"(?:[\s._\-]*(?:\d{1,4}|[a-z]{1,3}))?$", re.IGNORECASE)
 
 EXCLUDED_DIR_TOKENS = ("extras", "trailers", "featurettes",
                        "behind the scenes", "bonus", "samples")
@@ -172,6 +172,8 @@ def _analyze_dir(d: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
     info = parse_nfo_file(nfo_path) if nfo_path else None
     if info and info.parse_error:
         flags.append("nfo_parse_warning")
+    elif info and info.recovery:
+        flags.append("nfo_recovered")
 
     files = snapshot_dir(d)
     total, count, mx = _snapshot_stats(files)
@@ -194,9 +196,9 @@ def _analyze_loose(f: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
     for s in sorted(f.parent.iterdir(), key=lambda p: p.name.lower()):
         if not s.is_file() or s == f:
             continue
-        if s.stem == stem or s.stem.startswith(stem + "."):
-            if s.suffix.lower() in SUB_EXTS or s.suffix.lower() == ".nfo":
-                sibs.append(s)
+        if ((s.stem == stem or s.stem.startswith(stem + "."))
+                and (s.suffix.lower() in SUB_EXTS or s.suffix.lower() == ".nfo")):
+            sibs.append(s)
     files_paths = [f] + sibs
     nfo_path = next((s for s in sibs if s.suffix.lower() == ".nfo"), None)
     info = parse_nfo_file(nfo_path) if nfo_path else None
@@ -223,7 +225,7 @@ def scan_source_root(cfg: Config) -> tuple[list[Unit], list[dict]]:
     root = cfg.source_root
     for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         name = entry.name
-        if name.startswith(".") or name.startswith("$") or name.lower() in EXCLUDED_DIRS:
+        if name.startswith((".", "$")) or name.lower() in EXCLUDED_DIRS:
             continue
         if entry.is_file() and RE_SUPPLEMENT.search(entry.stem):
             continue  # 散落的花絮/预告文件不作为影片单元

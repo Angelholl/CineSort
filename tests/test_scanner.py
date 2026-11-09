@@ -2,8 +2,8 @@
 from pathlib import Path
 
 from app.core import scanner
-from app.core.config import Config, Library
-from conftest import make_movie, nfo_xml
+from app.core.config import Config, Library, load_config
+from conftest import build_env, make_movie, nfo_xml
 
 
 def bare_cfg(src) -> Config:
@@ -201,3 +201,44 @@ def test_loose_supplement_file_skipped(tmp_path):
     make_movie(src, "Real Film", title="Real Film", genres=("动作",), tmdb="99")
     units, _ = scanner.scan_source_root(bare_cfg(src))
     assert [u.id for u in units] == ["Real Film"]
+
+
+def test_recovered_nfo_flags_without_warning(tmp_path):
+    """容错恢复的 NFO 只挂 nfo_recovered flag，不挂 nfo_parse_warning 也不产生 warn note。"""
+    cfg_path = build_env(tmp_path)
+    d = make_movie(cfg_path.parent / "src", "Recovered Film",
+                   title="Recovered Film", tmdb="10")
+    (d / "movie.nfo").write_text(
+        nfo_xml(title="Recovered Film", tmdb="10").replace(
+            "</movie>", "<7mmtvid>x</7mmtvid></movie>"),
+        encoding="utf-8")
+    units, notes = scanner.scan_source_root(load_config(cfg_path))
+    assert len(units) == 1
+    assert units[0].nfo.parse_error is None and units[0].nfo.recovery
+    assert units[0].flags == ["nfo_recovered"]
+    warn_paths = [n.get("path") for n in notes if n.get("level") == "warn"]
+    assert not warn_paths
+
+
+def test_broken_nfo_keeps_warning(tmp_path):
+    """硬失败的 NFO 仍挂 nfo_parse_warning，且扫描 notes 保留同 path 的 warn。"""
+    cfg_path = build_env(tmp_path)
+    d = make_movie(cfg_path.parent / "src", "Broken Film",
+                   title="Broken Film", tmdb="10")
+    (d / "movie.nfo").write_text("<movie><genre>恐怖</genre>", encoding="utf-8")
+    units, notes = scanner.scan_source_root(load_config(cfg_path))
+    assert len(units) == 1
+    assert "nfo_parse_warning" in units[0].flags
+    assert any(n.get("level") == "warn" and n.get("path") == str(units[0].nfo_path)
+               for n in notes)
+
+
+def test_clean_nfo_has_no_nfo_flags(tmp_path):
+    """正常解析的 NFO 不挂任何 NFO 相关 flag。"""
+    cfg_path = build_env(tmp_path)
+    make_movie(cfg_path.parent / "src", "Clean Film",
+               title="Clean Film", genres=("动作",), tmdb="10")
+    units, notes = scanner.scan_source_root(load_config(cfg_path))
+    assert len(units) == 1
+    assert not notes
+    assert units[0].flags == []
