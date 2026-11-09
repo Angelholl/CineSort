@@ -60,14 +60,20 @@ def fake_units(n: int, seed: int = 20261102) -> list[dict]:
         conf = {"rule": "high", "learned": "medium",
                 "plot": rnd.choice(["medium", "low"]), "fallback": "low"}[level]
         files = rnd.randint(1, 14)
+        # 与 planner 产物同构：部分行带女优段（「库\女优\影片」三层布局）
+        actress = rnd.choice(["篠田ゆあ", "伊藤舞雪", "#未知女优", None, None])
+        src = rf"D:\待整理\{actress}\{name}" if actress else rf"D:\待整理\{name}"
+        dst_dir = rf"{lib_root}\{actress}\{name}" if actress else rf"{lib_root}\{name}"
         units.append({
             "id": name,
             "kind": "dir",
             "label": name,
             "title": title,
             "year": year,
-            "src": rf"D:\待整理\{name}",
-            "dst_dir": rf"{lib_root}\{name}",
+            "src": src,
+            "dst_dir": dst_dir,
+            "dst_name": name,
+            "actress": actress,
             "target_lib": lib,
             "target_root": lib_root,
             "level": level,

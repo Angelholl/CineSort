@@ -222,7 +222,8 @@ class PlanTab(QWidget):
         self.d_fields: dict[str, QLabel] = {}
         for row, (key, label) in enumerate((
                 ("level", "判定"), ("conf", "置信度"), ("lib", "当前目标库"),
-                ("files", "文件数"), ("size", "体积"), ("status", "状态"))):
+                ("files", "文件数"), ("size", "体积"), ("status", "状态"),
+                ("dst", "目标路径"))):
             lab = QLabel(label)
             lab.setProperty("dim", True)
             grid.addWidget(lab, row, 0)
@@ -535,6 +536,7 @@ class PlanTab(QWidget):
         ctext, ctone = confidence_badge(u)
         self._set_badge("conf", ctext, ctone)
         self.d_fields["lib"].setText(self.vm.effective_target_lib(u))
+        self.d_fields["dst"].setText(self.vm.effective_dst_dir(u))
         self.d_fields["files"].setText(str(u["file_count"]))
         self.d_fields["size"].setText(human_size(u["total_size"]))
         text, badge = status_badge(u)

@@ -248,3 +248,26 @@ def test_start_apply_forwards_output_params(qapp):
     tab._start_apply(["u1"], set(), {})
     assert stub.calls == [(["u1"], set(), {}, "E:/out", True)]
     tab.deleteLater()
+
+
+# ---------------- 三层布局：详情「目标路径」行与 demo 同构（D-20261110-01，Task-07） ----------------
+
+def test_detail_shows_dst_path(tab):
+    tab, _ = tab
+    tab.table.selectRow(0)
+    assert tab._current_unit is not None
+    text = tab.d_fields["dst"].text()
+    assert text
+    assert text == tab.vm.effective_dst_dir(tab._current_unit)
+
+
+def test_demo_units_carry_actress_fields():
+    rows = fake_units(40, seed=7)
+    assert all(("actress" in r and (r["actress"] is None or r["actress"]))
+               for r in rows)
+    assert all(r.get("dst_name") for r in rows)
+    with_actress = [r for r in rows if r["actress"]]
+    assert with_actress, "demo 必须存在带女优段的行以驱动新展示"
+    for r in with_actress:
+        assert r["actress"] in r["dst_dir"]
+        assert r["actress"] in r["src"]
