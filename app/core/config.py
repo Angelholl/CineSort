@@ -12,9 +12,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import tomllib
 
 STRATEGIES = ("smart", "priority", "genre_only")
 CONFLICT_MODES = ("skip", "rename")
@@ -82,6 +83,7 @@ class Config:
     staging_dir: Path | None = None
     warn_fallback_ratio: float = 0.15
     block_fallback_ratio: float = 0.30
+    weak_genre_aliases: dict[str, str] = field(default_factory=dict)
 
     @property
     def runtime_dir(self) -> Path:
@@ -96,6 +98,7 @@ class Config:
             "libraries": [(n, normcase(lib.path)) for n, lib in self.libraries.items()],
             "genre_priority": list(self.genre_priority),
             "genre_aliases": dict(sorted(self.genre_aliases.items())),
+            "weak_genre_aliases": dict(sorted(self.weak_genre_aliases.items())),
             "fallback_path": normcase(self.fallback_path),
             "strategy": self.strategy,
         }
@@ -199,6 +202,13 @@ def load_config(path: Path | str) -> Config:
             raise ConfigError(f"genre_aliases[{k!r}] 指向未定义的库：{v}")
         genre_aliases[str(k)] = v
 
+    weak_genre_aliases: dict[str, str] = {}
+    for k, v in (data.get("weak_genre_aliases") or {}).items():
+        v = str(v).strip()
+        if v not in libraries:
+            raise ConfigError(f"weak_genre_aliases[{k!r}] 指向未定义的库：{v}")
+        weak_genre_aliases[str(k)] = v
+
     plot_data = data.get("plot") or {}
     plot = PlotOptions(
         enabled=bool(plot_data.get("enabled", True)),
@@ -254,6 +264,7 @@ def load_config(path: Path | str) -> Config:
         libraries=libraries,
         genre_priority=genre_priority,
         genre_aliases=genre_aliases,
+        weak_genre_aliases=weak_genre_aliases,
         fallback_path=fallback_path,
         strategy=strategy,
         on_conflict=on_conflict,
@@ -287,6 +298,7 @@ def describe(cfg: Config) -> dict:
         },
         "genre_priority": list(cfg.genre_priority),
         "genre_aliases": dict(cfg.genre_aliases),
+        "weak_genre_aliases": dict(cfg.weak_genre_aliases),
         "libraries": [lib.describe() for lib in cfg.libraries.values()],
     }
 
@@ -322,6 +334,7 @@ def raw_describe(data: dict) -> dict:
         },
         "genre_priority": [str(x) for x in data.get("genre_priority", [])],
         "genre_aliases": {str(k): str(v) for k, v in (data.get("genre_aliases") or {}).items()},
+        "weak_genre_aliases": {str(k): str(v) for k, v in (data.get("weak_genre_aliases") or {}).items()},
         "libraries": libs,
     }
 
@@ -342,6 +355,8 @@ def dump_config_text(d: dict) -> str:
     lines.append("genre_priority = [" + ", ".join(priority) + "]")
     alias_items = [f"{js(k)} = {js(v)}" for k, v in (d.get("genre_aliases") or {}).items()]
     lines.append("genre_aliases = { " + ", ".join(alias_items) + " }")
+    weak_items = [f"{js(k)} = {js(v)}" for k, v in (d.get("weak_genre_aliases") or {}).items()]
+    lines.append("weak_genre_aliases = { " + ", ".join(weak_items) + " }")
     lines.append("")
     plot = d.get("plot") or {}
     lines.append("[plot]")

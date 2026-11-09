@@ -1,8 +1,16 @@
 """配置校验测试（评议条件 C4）。"""
 import pytest
-
-from app.core.config import ConfigError, check_session_root, is_sub_path, load_config
 from conftest import build_env
+
+from app.core.config import (
+    ConfigError,
+    check_session_root,
+    describe,
+    dump_config_text,
+    is_sub_path,
+    load_config,
+    raw_describe,
+)
 
 
 def test_valid_load_and_hash_stable(tmp_path):
@@ -121,3 +129,48 @@ def test_session_root_inside_fallback_rejected(tmp_path):
     sub.mkdir()
     err = check_session_root(sub, cfg)
     assert err is not None and "不能位于兜底库" in err
+
+
+def test_weak_genre_aliases_loaded(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path, overrides={"weak_genre_aliases": {"护士": "动作"}}))
+    assert cfg.weak_genre_aliases == {"护士": "动作"}
+
+
+def test_weak_alias_unknown_lib_rejected(tmp_path):
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(build_env(
+            tmp_path, overrides={"weak_genre_aliases": {"护士": "不存在"}}))
+    assert "weak_genre_aliases" in str(excinfo.value)
+
+
+def test_weak_alias_defaults_empty(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    assert cfg.weak_genre_aliases == {}
+
+
+def test_dump_round_trips_weak_aliases(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path,
+        overrides={"weak_genre_aliases": {"护士": "动作", "女同接吻": "科幻"}}))
+    target = tmp_path / "roundtrip.toml"
+    target.write_text(dump_config_text(describe(cfg)), encoding="utf-8")
+    assert load_config(target).weak_genre_aliases == cfg.weak_genre_aliases
+
+
+def test_describe_and_raw_describe_include_weak(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path, overrides={"weak_genre_aliases": {"护士": "动作"}}))
+    described = describe(cfg)
+    assert isinstance(described["weak_genre_aliases"], dict)
+    assert described["weak_genre_aliases"] == {"护士": "动作"}
+    raw = raw_describe({"weak_genre_aliases": {"护士": "动作"}})
+    assert isinstance(raw["weak_genre_aliases"], dict)
+    assert raw["weak_genre_aliases"] == {"护士": "动作"}
+
+
+def test_config_hash_changes_with_weak(tmp_path):
+    plain = load_config(build_env(tmp_path))
+    weak = load_config(build_env(
+        tmp_path, overrides={"weak_genre_aliases": {"护士": "动作"}}))
+    assert plain.config_hash() != weak.config_hash()
