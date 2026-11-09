@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
-from pathlib import Path
 
 from app.core import planner
 from app.core.planner import READY, ST_APPLIED, ST_CONFLICT, ST_MULTI, STATUS_LABELS
@@ -334,9 +333,9 @@ def test_effective_output_root_groups_by_effective_lib(units):
     a = units[0]                                  # 科幻
     d = units[3]                                  # 兜底库
     assert "科幻" in model.effective_output_root(a)
-    assert model.effective_output_root(d) == rf"E:\out\兜底库"
+    assert model.effective_output_root(d) == r"E:\out\兜底库"
     model.set_override("A 规则", "喜剧")
-    assert model.effective_output_root(a) == rf"E:\out\喜剧"
+    assert model.effective_output_root(a) == r"E:\out\喜剧"
 
 
 def test_effective_output_root_flat_when_group_off(units):

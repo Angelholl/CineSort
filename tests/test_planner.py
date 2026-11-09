@@ -1,11 +1,17 @@
 """计划构建 / 冲突三分 / 漂移检测测试（评议条件 C3 / C7）。"""
 import os
 
-from app.core import scanner
-from app.core.config import load_config, save_config_dict, describe
-from app.core.planner import (build_plan, check_plan_freshness, load_plan,
-                              mark_applied, save_plan)
 from conftest import build_env, make_movie
+
+from app.core import scanner
+from app.core.config import describe, load_config, save_config_dict
+from app.core.planner import (
+    build_plan,
+    check_plan_freshness,
+    load_plan,
+    mark_applied,
+    save_plan,
+)
 
 
 def scan_and_plan(cfg):

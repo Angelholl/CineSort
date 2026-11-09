@@ -147,7 +147,7 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
         elif cfg.plot.enabled and not plot:
             ev.append("无摘要文本可分析")
         if soft_hits:
-            g, lib, votes, manual = soft_hits[0]
+            g, lib, votes, _manual = soft_hits[0]
             ev.append(f"自学习仅 {votes} 票未自动生效（『{g}』→『{lib}』），"
                       "可在计划页人工确认")
         return Decision("兜底库", str(cfg.fallback_path), LEVEL_FALLBACK, reason, ev, "low")
