@@ -305,3 +305,45 @@ def test_card_tones_shape_matches_seven_cards(units):
     assert [label for _v, label, _t in rows] == [
         "影片单元", "可执行", "规则判定", "摘要预判", "自学习", "兜底", "需人工处理"]
     assert rows[0][0] == "6" and rows[1][0] == "4"      # 千分位前的小数值
+
+
+# ------------------------------------------------------- 本次输出目录（会话级）
+
+def test_output_root_defaults_none_and_group_true(units):
+    model = vm.PlanViewModel(units)
+    assert model.output_root is None
+    assert model.group_by_category is True
+
+
+def test_set_output_root_blank_clears(units):
+    model = vm.PlanViewModel(units)
+    for blank in ("  ", "", None):
+        model.set_output_root(blank)
+        assert model.output_root is None
+    model.set_output_root("E:/out")
+    assert model.output_root == "E:/out"
+
+
+def test_effective_output_root_groups_by_effective_lib(units):
+    model = vm.PlanViewModel(units)
+    model.set_output_root(r"E:\out")
+    a = units[0]                                  # 科幻
+    d = units[3]                                  # 兜底库
+    assert "科幻" in model.effective_output_root(a)
+    assert model.effective_output_root(d) == rf"E:\out\兜底库"
+    model.set_override("A 规则", "喜剧")
+    assert model.effective_output_root(a) == rf"E:\out\喜剧"
+
+
+def test_effective_output_root_flat_when_group_off(units):
+    model = vm.PlanViewModel(units)
+    model.set_output_root(r"E:\out")
+    model.group_by_category = False
+    for u in units:
+        assert model.effective_output_root(u) == r"E:\out"
+
+
+def test_effective_output_root_none_without_output(units):
+    model = vm.PlanViewModel(units)
+    model.set_override("A 规则", "喜剧")
+    assert model.effective_output_root(units[0]) is None

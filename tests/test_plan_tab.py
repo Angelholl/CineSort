@@ -153,3 +153,98 @@ def test_main_window_demo_builds_and_closes(qapp):
     assert win.pill.text() == "空闲"
     assert win.close() is True                # 无任务运行，关窗不应被拦截
     win.deleteLater()
+
+
+# ------------------------------------------------- 本次输出目录 UI（Task-07）
+
+class _OutputStubState:
+    """非演示 tab 用的最小 stub（浏览/清除交互需要可点击按钮）。"""
+
+    def plan(self):
+        return {"units": fake_units(5, seed=1)}
+
+
+@pytest.fixture()
+def live_tab(qapp):
+    toasts: list[str] = []
+    tab = PlanTab(_OutputStubState(), None, toast=toasts.append)
+    yield tab
+    tab.deleteLater()
+
+
+def test_output_controls_initial_state(tab):
+    tab, _ = tab
+    assert tab.f_out_dir.text() == ""
+    assert "未选择" in tab.f_out_dir.placeholderText()
+    assert tab.chk_by_category.isChecked() is True
+    assert tab.btn_clear_out.isEnabled() is False
+
+
+def test_browse_output_sets_vm_and_clear_enabled(live_tab, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "E:/out")
+    live_tab.btn_browse_out.click()
+    assert live_tab.vm.output_root == "E:/out"
+    assert live_tab.f_out_dir.text() == "E:/out"
+    assert live_tab.btn_clear_out.isEnabled() is True
+    assert live_tab.chk_by_category.isEnabled() is True
+
+
+def test_clear_output_resets(live_tab, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "E:/out")
+    live_tab.btn_browse_out.click()
+    live_tab.btn_clear_out.click()
+    assert live_tab.vm.output_root is None
+    assert live_tab.f_out_dir.text() == ""
+    assert live_tab.btn_clear_out.isEnabled() is False
+    assert live_tab.chk_by_category.isEnabled() is False
+
+
+def test_category_checkbox_syncs_vm(tab):
+    tab, _ = tab
+    tab.chk_by_category.setChecked(False)
+    assert tab.vm.group_by_category is False
+
+
+def test_output_controls_disabled_in_demo(tab):
+    tab, _ = tab
+    assert tab.btn_browse_out.isEnabled() is False
+    assert tab.btn_clear_out.isEnabled() is False
+    assert tab.f_out_dir.isEnabled() is False
+    assert tab.chk_by_category.isEnabled() is False
+
+
+def test_output_controls_reset_after_rebuild(live_tab, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "E:/out")
+    live_tab.btn_browse_out.click()
+    live_tab.refresh(force=True)
+    assert live_tab.vm.output_root is None
+    assert live_tab.f_out_dir.text() == ""
+    assert live_tab.chk_by_category.isChecked() is True
+
+
+def test_start_apply_forwards_output_params(qapp):
+    class ApplyStubState:
+        def __init__(self):
+            self.calls = []
+
+        def plan(self):
+            return {"units": fake_units(5, seed=1)}
+
+        def start_apply(self, ids, acks, overrides,
+                        output_root=None, group_by_category=True):
+            self.calls.append((ids, acks, overrides, output_root,
+                               group_by_category))
+
+    stub = ApplyStubState()
+    toasts: list[str] = []
+    tab = PlanTab(stub, None, toast=toasts.append)
+    tab.vm.set_output_root("E:/out")
+    tab._start_apply(["u1"], set(), {})
+    assert stub.calls == [(["u1"], set(), {}, "E:/out", True)]
+    tab.deleteLater()

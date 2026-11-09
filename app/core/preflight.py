@@ -47,7 +47,8 @@ def staging_roots_for(cfg: Config) -> list[Path]:
 
 
 def run_preflight(cfg: Config, plan: dict | None = None,
-                  selected_ids: set[str] | None = None) -> list[dict]:
+                  selected_ids: set[str] | None = None,
+                  extra_staging_roots: list[Path] | None = None) -> list[dict]:
     items: list[dict] = []
 
     # 1) 配置路径仍存在（C4）
@@ -102,7 +103,10 @@ def run_preflight(cfg: Config, plan: dict | None = None,
                 })
 
     # 4) staging 半成品残留
-    leftovers = find_staging_leftovers(staging_roots_for(cfg))
+    roots = set(staging_roots_for(cfg))
+    for p in extra_staging_roots or ():
+        roots.add(Path(p))
+    leftovers = find_staging_leftovers(sorted(roots, key=str))
     if leftovers:
         items.append({
             "level": "block", "code": "staging_leftover",

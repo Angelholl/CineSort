@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.core.planner import READY, STATUS_LABELS
 
 # 筛选键 → 语义；UI 的 chips 顺序即此顺序
@@ -98,6 +100,8 @@ class PlanViewModel:
         self.overrides: dict[str, str] = {}
         self.filter: str = FILTER_ALL
         self.query: str = ""
+        self.output_root: str | None = None   # 本次输出目录（会话级）
+        self.group_by_category: bool = True   # 输出目录下按类别建子文件夹（D2 默认开）
 
     # ------------------------------------------------------------- 行视图
 
@@ -204,6 +208,20 @@ class PlanViewModel:
 
     def effective_target_lib(self, unit: dict) -> str:
         return self.overrides.get(unit["id"]) or unit["target_lib"]
+
+    def set_output_root(self, path: str | None) -> None:
+        """本次输出目录（会话级）；None/空串 = 撤销，回到计划库路径。"""
+        self.output_root = (path or "").strip() or None
+
+    def effective_output_root(self, unit: dict) -> str | None:
+        """该单元本次实际目标根；未设输出目录时 None（沿用计划库根）。
+        类别 = 改判后的目标库名（effective_target_lib，含「兜底库」）。"""
+        if not self.output_root:
+            return None
+        root = Path(self.output_root)
+        if self.group_by_category:
+            root = root / self.effective_target_lib(unit)
+        return str(root)
 
     def overridden_ids(self) -> list[str]:
         return [u["id"] for u in self._units if u["id"] in self.overrides]

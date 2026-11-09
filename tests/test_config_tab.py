@@ -260,3 +260,74 @@ def test_main_window_static_wiring():
     assert "self.config_tab.refresh" in src           # 慢 tick 喂配置页
     assert '"④ 体检"' in src                          # C5：占位循环已换成 DoctorTab
     assert "from .config_tab import ConfigTab" in src
+
+
+# ------------------------------------------------------- 目录浏览（Task-06）
+
+def test_browse_source_fills_field_and_marks_dirty(qapp, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "E:/pick/src")
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.btn_browse_source.click()
+    assert tab.f_source_root.text() == "E:/pick/src"
+    assert tab._dirty is True
+    tab.deleteLater()
+
+
+def test_browse_cancel_keeps_field(qapp, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "")
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.btn_browse_source.click()
+    assert tab.f_source_root.text() == "D:/media"
+    assert tab._dirty is False
+    tab.deleteLater()
+
+
+def test_browse_fallback_and_staging_wired(qapp, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    picks = {"选择兜底库目录": "E:/fb", "选择暂存目录（可留空）": "E:/st"}
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: picks.get(a[1] if len(a) > 1 else "", ""))
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.btn_browse_fallback.click()
+    tab.btn_browse_staging.click()
+    assert tab.f_fallback_path.text() == "E:/fb"
+    assert tab.f_staging_dir.text() == "E:/st"
+    tab.deleteLater()
+
+
+def test_add_library_via_dialog_prefills_row(qapp, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "E:/media/新库")
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    assert tab.lib_table.rowCount() == 2
+    tab.btn_add.click()
+    assert tab.lib_table.rowCount() == 3
+    assert tab.lib_table.item(2, 0).text() == "新库"
+    assert tab.lib_table.item(2, 1).text() == "E:/media/新库"
+    assert tab.lib_table.item(2, 2).text() == ""
+    assert tab._dirty is True
+    tab.deleteLater()
+
+
+def test_add_library_dialog_cancel_adds_nothing(qapp, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "")
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.btn_add.click()
+    assert tab.lib_table.rowCount() == 2
+    assert tab._dirty is False
+    tab.deleteLater()
+
+
+def test_demo_mode_disables_browse_controls(qapp):
+    tab = ConfigTab(None, toast=lambda m: None)
+    assert tab.btn_browse_source.isEnabled() is False
+    assert tab.btn_browse_fallback.isEnabled() is False
+    assert tab.btn_browse_staging.isEnabled() is False
+    tab.deleteLater()

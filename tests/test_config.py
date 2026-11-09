@@ -1,7 +1,7 @@
 """配置校验测试（评议条件 C4）。"""
 import pytest
 
-from app.core.config import ConfigError, is_sub_path, load_config
+from app.core.config import ConfigError, check_session_root, is_sub_path, load_config
 from conftest import build_env
 
 
@@ -79,3 +79,45 @@ def test_is_sub_path_windows_case():
     assert is_sub_path("G:\\a", "G:\\a")
     assert not is_sub_path("G:\\ab", "G:\\a")
     assert not is_sub_path("G:\\a", "G:\\a\\b")
+
+
+def test_session_root_accepts_sibling_dir(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    out = tmp_path / "out"
+    out.mkdir()
+    assert check_session_root(out, cfg) is None
+
+
+def test_session_root_missing_dir_rejected(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    err = check_session_root(tmp_path / "ghost", cfg)
+    assert err is not None and "不存在" in err
+
+
+def test_session_root_same_as_source_rejected(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    err = check_session_root(str(cfg.source_root), cfg)
+    assert err is not None and "不能是同一个目录" in err and "源目录" in err
+
+
+def test_session_root_inside_source_rejected(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    sub = cfg.source_root / "sub"
+    sub.mkdir()
+    err = check_session_root(sub, cfg)
+    assert err is not None and "不能位于源目录" in err
+
+
+def test_session_root_containing_library_rejected(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    libs_parent = tmp_path / "libs"
+    err = check_session_root(libs_parent, cfg)
+    assert err is not None and "媒体库[科幻]" in err and "不能位于输出目录" in err
+
+
+def test_session_root_inside_fallback_rejected(tmp_path):
+    cfg = load_config(build_env(tmp_path))
+    sub = cfg.fallback_path / "sub"
+    sub.mkdir()
+    err = check_session_root(sub, cfg)
+    assert err is not None and "不能位于兜底库" in err

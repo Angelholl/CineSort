@@ -122,6 +122,27 @@ def _check_overlap(a: Path, b: Path, ta: str, tb: str) -> None:
         raise ConfigError(f"{tb}（{b}）不能位于 {ta}（{a}）内部")
 
 
+def check_session_root(output_root: Path | str, cfg: Config) -> str | None:
+    """本次输出目录校验（会话级，不进 config.toml）：必须存在，且与
+    源根 / 库根 / 兜底库互不嵌套（镜像 _check_overlap 语义）。
+    返回错误文案；None = 合法。"""
+    p = Path(output_root)
+    if not p.is_dir():
+        return f"输出目录不存在或不是目录：{p}"
+    roots: list[tuple[str, Path]] = [("源目录", cfg.source_root)]
+    roots += [(f"媒体库[{name}]", lib.path)
+              for name, lib in cfg.libraries.items()]
+    roots.append(("兜底库", cfg.fallback_path))
+    for name, root in roots:
+        if normcase(p) == normcase(root):
+            return f"输出目录与{name}不能是同一个目录：{root}"
+        if is_sub_path(p, root):
+            return f"输出目录（{p}）不能位于{name}（{root}）内部"
+        if is_sub_path(root, p):
+            return f"{name}（{root}）不能位于输出目录（{p}）内部"
+    return None
+
+
 def load_config(path: Path | str) -> Config:
     cfg_path = Path(path)
     if not cfg_path.is_file():

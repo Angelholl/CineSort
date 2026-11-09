@@ -9,7 +9,7 @@ from pathlib import Path
 from . import fsops, preflight
 from . import learned as learned_store
 from . import scanner as scanner_mod
-from .config import load_config
+from .config import check_session_root, load_config
 from .journal import Journal, done_entries, is_valid_session_name
 from .planner import (
     READY,
@@ -133,7 +133,8 @@ def run_scan(state, job: Job) -> None:
 
 
 def run_apply(state, job: Job, ids: list[str], acks: set[str],
-              overrides: dict[str, str]) -> None:
+              overrides: dict[str, str], output_root: str | None = None,
+              group_by_category: bool = True) -> None:
     cfg = load_config(state.config_path)
     plan = load_plan(cfg.runtime_dir)
     if not plan:
@@ -141,11 +142,6 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     problems = check_plan_freshness(cfg, plan, only_ids=set(ids))
     if problems:
         raise RuntimeError("计划已过期，未执行任何操作。" + "；".join(problems[:5]))
-    pf = preflight.run_preflight(cfg, plan, selected_ids=set(ids))
-    blocks = [i for i in pf if i["level"] == "block" and i["code"] not in acks]
-    if blocks:
-        raise RuntimeError("预检未通过，未执行任何操作：" + "；".join(
-            f"[{b['code']}] {b['message']}" for b in blocks))
     units = [u for u in plan["units"] if u["id"] in set(ids)]
     bad = [u["id"] for u in units if u["status"] != READY]
     if bad:
@@ -153,7 +149,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     if not units:
         raise RuntimeError("未选择任何影片")
 
-    # 逐行覆盖目标库
+    # 逐行覆盖目标库（内存改写，不写 plan.json）
     for u in units:
         ov = overrides.get(u["id"])
         if not ov:
@@ -169,6 +165,35 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
             u["target_root"] = str(lib.path)
         u["dst_dir"] = str(Path(u["target_root"]) / u["dst_name"])
         u["evidence"] = list(u["evidence"]) + ["目标库由人工指定"]
+
+    # 本次输出目录（会话级覆盖，只计算不改盘）
+    extra_roots = None
+    if output_root:
+        err = check_session_root(output_root, cfg)
+        if err:
+            raise RuntimeError(f"输出目录不可用：{err}")   # 先于任何文件操作
+        out = Path(output_root)
+        for u in units:
+            root = out / u["target_lib"] if group_by_category else out
+            u["target_root"] = str(root)
+            u["dst_dir"] = str(root / u["dst_name"])   # 复用 planner 组合规则
+            u["evidence"] = list(u["evidence"]) + ["本次输出目录（会话级，不改全局配置）"]
+        extra_roots = sorted({fsops.staging_for_root(Path(u["target_root"]))
+                              for u in units}, key=str)
+        job.log(f"本次输出目录：{output_root}"
+                + ("（按类别建子文件夹）" if group_by_category else "（平铺）"))
+
+    pf = preflight.run_preflight(cfg, plan, selected_ids=set(ids),
+                                 extra_staging_roots=extra_roots)
+    blocks = [i for i in pf if i["level"] == "block" and i["code"] not in acks]
+    if blocks:
+        raise RuntimeError("预检未通过，未执行任何操作：" + "；".join(
+            f"[{b['code']}] {b['message']}" for b in blocks))
+
+    # 输出模式下补建类别根目录（必须在阻断门之后，避免被阻断时留下空目录）
+    if output_root:
+        for root in sorted({u["target_root"] for u in units}):
+            Path(root).mkdir(parents=True, exist_ok=True)
 
     job.total = len(units)
     jr = Journal(cfg.runtime_dir / "journals", "apply", {

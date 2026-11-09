@@ -90,9 +90,10 @@ class AppState:
         return {"ok": True}
 
     def start_apply(self, ids: list[str], acks: set[str],
-                    overrides: dict[str, str]) -> dict:
+                    overrides: dict[str, str], output_root: str | None = None,
+                    group_by_category: bool = True) -> dict:
         self.jobs.start("apply", lambda job: jobs_mod.run_apply(
-            self, job, ids, acks, overrides))
+            self, job, ids, acks, overrides, output_root, group_by_category))
         return {"ok": True}
 
     def start_undo(self, fname: str) -> dict:

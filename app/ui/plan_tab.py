@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -79,6 +80,11 @@ class PlanTab(QWidget):
             for b in (self.btn_scan, self.btn_apply):
                 b.setEnabled(False)
                 b.setToolTip("演示模式（假数据），不连接真实配置")
+            for b in (self.btn_browse_out, self.btn_clear_out):
+                b.setEnabled(False)
+                b.setToolTip("演示模式（假数据），不连接真实配置")
+            self.f_out_dir.setEnabled(False)
+            self.chk_by_category.setEnabled(False)
 
     # ------------------------------------------------------------ 界面构建
 
@@ -161,6 +167,24 @@ class PlanTab(QWidget):
         self.summary.setProperty("mini", True)
         bl.addWidget(self.summary)
         bl.addStretch(1)
+        self.lbl_out = QLabel("本次输出")
+        self.lbl_out.setProperty("dim", True)
+        self.lbl_out.setToolTip("仅对本次执行生效，不写入全局配置；重新扫描后自动清空")
+        self.f_out_dir = QLineEdit()
+        self.f_out_dir.setReadOnly(True)
+        self.f_out_dir.setPlaceholderText("未选择（按计划库路径输出）")
+        self.f_out_dir.setFixedWidth(220)
+        self.btn_browse_out = QPushButton("浏览…")
+        self.btn_browse_out.clicked.connect(self._browse_output_dir)
+        self.btn_clear_out = QPushButton("清除")
+        self.btn_clear_out.setEnabled(False)
+        self.btn_clear_out.clicked.connect(self._clear_output_dir)
+        self.chk_by_category = QCheckBox("按类别建子文件夹")
+        self.chk_by_category.setChecked(True)          # D2 默认开
+        self.chk_by_category.toggled.connect(self._on_category_toggled)
+        for w in (self.lbl_out, self.f_out_dir, self.btn_browse_out,
+                  self.btn_clear_out, self.chk_by_category):
+            bl.addWidget(w)
         self.btn_all = QPushButton("全选可执行")
         self.btn_all.clicked.connect(self._select_ready)
         self.btn_clear = QPushButton("清空选择")
@@ -261,6 +285,7 @@ class PlanTab(QWidget):
         self._rebuild_table()
         self.empty_hint.setVisible(not self.vm.stats()["total"])
         self._update_summary()
+        self._sync_output_controls()
 
     def _rebuild_cards(self) -> None:
         while self.cards_bar.count():
@@ -346,6 +371,12 @@ class PlanTab(QWidget):
     def _set_busy(self, busy: bool) -> None:
         for b in (self.btn_scan, self.btn_apply, self.btn_all, self.btn_clear):
             b.setEnabled(not busy and self.state is not None)
+        # 任务运行中禁止改会话输出参数（演示模式下 state 为 None 保持禁用）
+        for w in (self.btn_browse_out, self.btn_clear_out,
+                  self.chk_by_category, self.f_out_dir):
+            w.setEnabled(not busy and self.state is not None)
+        if self.vm is not None and self.state is not None and not busy:
+            self._sync_output_controls()
 
     def _on_job_finished(self, snap: dict) -> None:
         kind, status = snap.get("kind"), snap.get("status")
@@ -402,11 +433,45 @@ class PlanTab(QWidget):
     def _start_apply(self, ids: list[str], acks: set[str],
                      overrides: dict[str, str]) -> None:
         try:
-            self.state.start_apply(ids, acks, overrides)
+            self.state.start_apply(ids, acks, overrides,
+                                   output_root=self.vm.output_root,
+                                   group_by_category=self.vm.group_by_category)
             self._job_seen_running = True
             self.toast(f"已开始搬运 {len(ids)} 部影片，进度见「② 执行 / 回滚」")
         except BusyError as exc:
             self.toast(str(exc))
+
+    # ------------------------------------------------------ 本次输出目录
+
+    def _browse_output_dir(self) -> None:
+        if self.state is None or self.vm is None:
+            return
+        chosen = QFileDialog.getExistingDirectory(
+            self, "选择本次输出目录", self.vm.output_root or "")
+        if not chosen:
+            return
+        self.vm.set_output_root(chosen)
+        self._sync_output_controls()
+        self.toast(f"本次输出目录已设置（仅对下次执行生效）：{chosen}")
+
+    def _clear_output_dir(self) -> None:
+        if self.vm is None:
+            return
+        self.vm.set_output_root(None)
+        self._sync_output_controls()
+
+    def _on_category_toggled(self, on: bool) -> None:
+        if self.vm is not None:
+            self.vm.group_by_category = on
+
+    def _sync_output_controls(self) -> None:
+        if self.vm is None:
+            return
+        self.f_out_dir.setText(self.vm.output_root or "")
+        self.chk_by_category.setChecked(self.vm.group_by_category)
+        has = bool(self.vm.output_root)
+        self.btn_clear_out.setEnabled(has)
+        self.chk_by_category.setEnabled(has)
 
     # ------------------------------------------------------------ 交互
 

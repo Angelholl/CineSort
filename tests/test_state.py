@@ -35,3 +35,26 @@ def test_state_snapshot_shape(tmp_path):
     assert state.plan() is None
     state.invalidate_plan()
     assert state.runtime_dir() == tmp_path / "runtime"
+
+
+def test_start_apply_passes_output_params(tmp_path, monkeypatch):
+    """start_apply 必须把 output_root / group_by_category 原样透传给 run_apply。"""
+    import time
+
+    import app.core.jobs as jobs_mod
+
+    captured = []
+    orig = jobs_mod.run_apply
+
+    def fake_run_apply(state, job, ids, acks, overrides,
+                       output_root=None, group_by_category=True):
+        captured.append((ids, acks, overrides, output_root, group_by_category))
+
+    monkeypatch.setattr(jobs_mod, "run_apply", fake_run_apply)
+    state = AppState(tmp_path / "config.toml")
+    state.start_apply(["a"], {"jellyfin_running"}, {},
+                      output_root="E:/out", group_by_category=False)
+    deadline = time.time() + 5
+    while not captured and time.time() < deadline:
+        time.sleep(0.05)
+    assert captured == [(["a"], {"jellyfin_running"}, {}, "E:/out", False)]

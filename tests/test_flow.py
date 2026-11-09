@@ -12,6 +12,7 @@ import pytest
 from conftest import build_env, make_movie
 
 from app.core import jobs as jobs_mod
+from app.core import preflight
 from app.core.config import ConfigError, load_config
 from app.core.journal import list_sessions
 from app.state import AppState
@@ -142,3 +143,94 @@ def test_busy_error_on_concurrent_jobs(env_state):
             state.start_apply(["nope"], set(), {})
     finally:
         gate.set()
+
+
+def test_preflight_extra_staging_roots_block(tmp_path):
+    """本次输出目录的 staging 根也纳入残留检测（Task-03）。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    extra = tmp_path / "out" / ".nfo-sorter-staging" / "some-session"
+    extra.mkdir(parents=True)
+    (extra / ".incomplete-20261109").write_text("x", encoding="utf-8")
+    items = preflight.run_preflight(
+        cfg, None, extra_staging_roots=[tmp_path / "out" / ".nfo-sorter-staging"])
+    assert any(i["level"] == "block" and i["code"] == "staging_leftover"
+               for i in items)
+    # 对照组：不传 extra_staging_roots 时同一残留不报（参数生效且不影响默认行为）
+    items_plain = preflight.run_preflight(cfg, None)
+    assert all(i["code"] != "staging_leftover" for i in items_plain)
+
+
+def _apply_session(state, out, group_by_category):
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    ids = [u["id"] for u in state.plan()["units"]]
+    out.mkdir(parents=True, exist_ok=True)
+    state.start_apply(ids, {"jellyfin_running"}, {},
+                      output_root=str(out), group_by_category=group_by_category)
+    return wait_job(state)
+
+
+def test_apply_session_output_flat(env_state):
+    state, env = env_state
+    out = env.path.parent / "本次输出"
+    st = _apply_session(state, out, group_by_category=False)
+    assert st["status"] == "done", st["log"]
+    r = st["result"]
+    assert r["moved"] == 2 and r["failed"] == 0
+    assert (out / "Space War (2021)").is_dir()
+    assert (out / "Gun Fight (2022)").is_dir()
+    assert not (env.source_root / "Space War (2021)").exists()
+    assert not (env.source_root / "Gun Fight (2022)").exists()
+
+
+def test_apply_session_output_group_by_category(env_state):
+    state, env = env_state
+    out = env.path.parent / "本次输出"
+    st = _apply_session(state, out, group_by_category=True)
+    assert st["status"] == "done", st["log"]
+    assert (out / "科幻" / "Space War (2021)").is_dir()
+    assert (out / "动作" / "Gun Fight (2022)").is_dir()
+
+
+def test_apply_session_output_not_persisted_to_plan(env_state):
+    state, env = env_state
+    out = env.path.parent / "本次输出"
+    st = _apply_session(state, out, group_by_category=False)
+    assert st["status"] == "done", st["log"]
+    plan = state.plan()
+    for u in plan["units"]:
+        assert "本次输出" not in u["dst_dir"]
+    assert "本次输出" not in env.path.read_text(encoding="utf-8")
+
+
+def test_apply_session_output_rejects_invalid_root(env_state):
+    state, env = env_state
+    state.start_scan()
+    st = wait_job(state)
+    ids = [u["id"] for u in state.plan()["units"]]
+    ghost = env.path.parent / "ghost"
+    state.start_apply(ids, {"jellyfin_running"}, {},
+                      output_root=str(ghost), group_by_category=False)
+    st = wait_job(state)
+    assert st["status"] == "failed"
+    assert "输出目录不可用" in st["error"]
+    assert (env.source_root / "Space War (2021)").is_dir()
+    assert (env.source_root / "Gun Fight (2022)").is_dir()
+
+
+def test_apply_session_output_inside_source_rejected(env_state):
+    state, env = env_state
+    state.start_scan()
+    st = wait_job(state)
+    ids = [u["id"] for u in state.plan()["units"]]
+    out = env.source_root / "out"
+    out.mkdir()
+    state.start_apply(ids, {"jellyfin_running"}, {},
+                      output_root=str(out), group_by_category=False)
+    st = wait_job(state)
+    assert st["status"] == "failed"
+    assert "输出目录不可用" in st["error"]
+    assert (env.source_root / "Space War (2021)").is_dir()
+    assert (env.source_root / "Gun Fight (2022)").is_dir()

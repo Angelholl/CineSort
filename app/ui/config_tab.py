@@ -12,6 +12,8 @@ state=None 即演示模式：表单禁用 + 自学习区显示降级文案。
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -93,9 +96,13 @@ class ConfigTab(QWidget):
         self.f_alias_text.setPlaceholderText("每行：别名=标准库名")
 
         rows = [
-            ("源目录", self.f_source_root),
-            ("兜底库", self.f_fallback_path),
-            ("暂存目录", self.f_staging_dir),
+            ("源目录", self._path_row(self.f_source_root, "选择源目录",
+                                      "btn_browse_source")),
+            ("兜底库", self._path_row(self.f_fallback_path, "选择兜底库目录",
+                                      "btn_browse_fallback")),
+            ("暂存目录", self._path_row(self.f_staging_dir,
+                                        "选择暂存目录（可留空）",
+                                        "btn_browse_staging")),
             ("策略", self.f_strategy),
             ("冲突处理", self.f_on_conflict),
             ("兜底提醒阈值", self.f_warn),
@@ -133,11 +140,11 @@ class ConfigTab(QWidget):
         self.lib_table.itemChanged.connect(self._mark_dirty)
         ll.addWidget(self.lib_table, 1)
         lib_btns = QHBoxLayout()
-        btn_add = QPushButton("＋ 添加库")
-        btn_add.clicked.connect(self._add_library_row)
+        self.btn_add = QPushButton("＋ 添加库")
+        self.btn_add.clicked.connect(self._on_add_library_clicked)
         btn_del = QPushButton("－ 删除选中库")
         btn_del.clicked.connect(self._del_library_row)
-        lib_btns.addWidget(btn_add)
+        lib_btns.addWidget(self.btn_add)
         lib_btns.addWidget(btn_del)
         lib_btns.addStretch(1)
         ll.addLayout(lib_btns)
@@ -215,6 +222,24 @@ class ConfigTab(QWidget):
         h.addStretch(1)
         return w
 
+    def _path_row(self, edit: QLineEdit, caption: str, attr: str) -> QWidget:
+        """路径行：输入框(伸展) + 「浏览…」按钮；按钮以 attr 名存为实例属性。"""
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+        h.addWidget(edit, 1)
+        btn = QPushButton("浏览…")
+        btn.clicked.connect(lambda _=False, e=edit, c=caption: self._browse_dir(e, c))
+        setattr(self, attr, btn)
+        h.addWidget(btn)
+        return w
+
+    def _browse_dir(self, edit: QLineEdit, caption: str) -> None:
+        chosen = QFileDialog.getExistingDirectory(self, caption, edit.text().strip())
+        if chosen:
+            edit.setText(chosen)   # textChanged → _mark_dirty 自动生效
+
     def _ratio_spin(self) -> QDoubleSpinBox:
         s = QDoubleSpinBox()
         s.setRange(0.0, 1.0)
@@ -233,7 +258,8 @@ class ConfigTab(QWidget):
                   self.f_plot_normalize, self.f_learning_enabled,
                   self.f_learning_min_votes, self.f_priority_text,
                   self.f_alias_text, self.lib_table, self.btn_save,
-                  self.btn_reload):
+                  self.btn_reload, self.btn_browse_source,
+                  self.btn_browse_fallback, self.btn_browse_staging):
             w.setEnabled(on)
 
     # ------------------------------------------------------------ 慢 tick
@@ -286,6 +312,13 @@ class ConfigTab(QWidget):
         vals = list(values or ["", "", "", ""])
         for c, text in enumerate(vals):
             self.lib_table.setItem(r, c, QTableWidgetItem(str(text)))
+
+    def _on_add_library_clicked(self) -> None:
+        """添加库 = 浏览选目录；取消则不插行（语义变化：旧版总是插空行）。"""
+        chosen = QFileDialog.getExistingDirectory(self, "选择库目录", "")
+        if not chosen:
+            return
+        self._add_library_row([Path(chosen).name, str(chosen), "", ""])
 
     def _del_library_row(self) -> None:
         row = self.lib_table.selectionModel().currentRow()
