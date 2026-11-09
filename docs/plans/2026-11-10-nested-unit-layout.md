@@ -361,7 +361,43 @@ QT_QPA_PLATFORM=offscreen py -3.12 -m app.ui.main_window --demo --screenshot art
 ## 9. 实施记录（执行者填写）
 
 - 基线=259（2026-11-10 主审实测：`pytest tests -q` → 259 passed；全仓 ruff 10 项）
-- Task-04/05 是否获 owner 放行：<是/否>
-- 收尾=<新总数>
-- 测试修订清单：<应仅 1 处，见全局约束 2>
-- 真实数据探针原样输出：<粘贴>
+- Task-04/05 是否获 owner 放行：**是**（owner 于 2026-11-10 开工会话一并放行）
+- 收尾=**292**（收口新鲜复跑 `pytest tests -q` → 292 passed；全仓 ruff 10→**8**，Task-04
+  顺手修复 preflight 2 项既有基线 lint——`check=False`、隐式串接加括号，行为零变化，只降不增）
+- 测试修订清单：**仅 1 处**——`test_complex_dir_becomes_batch_unit` 更名重写为
+  `test_nested_container_drills_two_units`（DA7 授权）；其余 0 删 0 改
+- 真实数据探针原样输出（只读，D:/CineSort-beta/CineSort/config.toml）：
+  - Task-01 后：`units= 244 composite= 0` / `nested= 244 actress= 244` / `notes= {'info': 140, 'warn': 2}`
+  - Task-08 收口全链：`units= 244 composite= 0` /
+    `status= {'ready': 205, 'multi_version': 39}` / `fallback_ratio= 0.03278688524590164` /
+    `actress_units= 244`
+- 计划预期偏差 3 处（均已在对应提交正文留痕）：
+  1. Task-01 R3 混合 info note 条件按规格 §3.1 判定表实现为
+     `len(movies) < len(withvid)`（计划步骤字面 `withvid and not movies` 与其自家测试表
+     test_mixed_container_falls_back_to_composite 矛盾；测试表=验收真值）；
+  2. Task-05「复合单元 genres=[] learned 空转」前提对 `_make_composite`（NFO 带 西部）不
+     成立，红灯实证 learned 会被记账；按计划意图（learned.json 无 entries）落实为显式跳过
+     composite 单元的 `learned_store.record`——占位分类不得为单影片 NFO 记票；
+  3. Task-03 计划预期 7 红实测 5 红：长路径与 undo 兄弟保护两测由 Task-02 三层 dst_dir
+     自然提前覆盖（undo 场景女优目录因 KEEP-1 预置已存在，os.rename 仅需直接父目录），
+     断言照常钉住行为。
+- 规格 §6 验收勾选：
+  - [x] V1 识别：composite 43→0（≤3）；conflict_name 22→0（≤12）；units 140→244（≥220）；
+        nested=actress=244
+  - [x] V2 组合：grep `"/ u[\"dst_name\"]"|/ u\.dst_name|target_path\) / ` app/ → 0 命中；
+        `unit_dst_dir` 8 命中（planner×2 + jobs×3 + viewmodel×3，≥5）；会话输出两种模式有测试钉
+  - [x] V3 合并：女优目录已存在→ready（非 conflict）；同 provider id→ST_PLACED；
+        异 id 同名→ST_CONFLICT；`.incomplete` 在影片层→ST_INCOMPLETE（4 测试钉）
+  - [x] V4 执行/撤销：女优目录缺失自动创建；TOCTOU 终检保留；undo 后库内兄弟原样、
+        影片目录回源位
+  - [x] V5 统计与体检：公式不变；viewmodel 分母对齐 total−composite；
+        >240 字符三层 dst → long_paths warn
+  - [x] V6 测试基线：259→**292**（+28 Task-01/02/03/06/07，+5 Task-04/05 放行；修订 1 处授权）
+  - [x] V7 GUI：offscreen 截图 `artifacts/2026-11-10-nested-tab0.png`（5000 行规模、详情含
+        「目标路径」行）、`artifacts/2026-11-10-nested-plan-detail.png`（选中行目验：
+        目标路径=库\女优\影片 三层）、`artifacts/2026-11-10-nested-tab2.png`（配置页不回归）；
+        提交信息注明「GUI 已验证（offscreen 截图）/黑盒未做」
+- 收口备注（给 owner 的新信号）：实测 **multi_version=39**——下钻后同 provider id
+  多副本/多版本按既有语义默认不勾选、待人工确认，是 C8 轮 javdb provider id 修复后首次
+  在真实数据上显形（规格 §3.4-3/§5），非回归。
+- 未 push（改动逐卡 commit，共 7 个实现提交 + 本文档 1 个 docs 提交，推送归 owner）
