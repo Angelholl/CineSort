@@ -1,10 +1,14 @@
 """影片单元扫描：识别目录/散装文件、定位 NFO、生成迁移快照。
 
-单元识别规则（决策 D-20261031-05）：
-- 一个"影片单元"= 源根下含视频文件的顶层目录，或散装单视频文件（归位时包一层同名文件夹）；
+单元识别规则（决策 D-20261031-05，经 D-20261110-01 复议）：
+- 一个"影片单元"= 含恰好一部影片（单 base/单 disc）的最内层完整目录，或散装单视频文件
+  （归位时包一层同名文件夹）；
+- 源根顶层纯容器目录（根层无正片视频、全部视频内容位于单片子目录）下钻，
+  每个子目录一个单元，女优段（actress）取容器目录名逐字保留；
 - extras/trailers/sample/@eaDir 等目录与 sample/trailer 视频不参与识别；
 - 多 CD/part 视频合并为一个单元；BDMV/VIDEO_TS/ISO 光盘结构视为一个单元；
-- 一个目录内出现多部影片（不同 base）→ 复合目录，排除并报告；
+- 容器混合（存在多 base 子目录或根层正片视频与子目录影片并存）→ 整目录复合单元
+  （ST_BATCH 待人工改判）；
 - 快照覆盖目录内全部文件（含 extras），保证跨盘复制零遗漏。
 """
 from __future__ import annotations
@@ -54,6 +58,51 @@ def _is_excluded_dir(name: str) -> bool:
     return any(tok in n for tok in EXCLUDED_DIR_TOKENS)
 
 
+def _own_main_videos(d: Path) -> list[Path]:
+    """d 直接子文件中的正片视频：¬RE_SAMPLE ∧ ¬RE_SUPPLEMENT（深度 1，不回退）。"""
+    return [f for f in sorted(d.iterdir(), key=lambda p: p.name.lower())
+            if f.is_file() and f.suffix.lower() in VIDEO_EXTS
+            and not RE_SAMPLE.search(f.stem) and not RE_SUPPLEMENT.search(f.stem)]
+
+
+def _has_disc_structure(d: Path) -> bool:
+    """BDMV/VIDEO_TS 子目录存在，或直接子文件正片视频里含 .iso。"""
+    if (d / "BDMV").is_dir() or (d / "VIDEO_TS").is_dir():
+        return True
+    return any(f.suffix.lower() == ".iso" for f in _own_main_videos(d))
+
+
+def _child_dirs(d: Path) -> list[Path]:
+    """直接子目录，剔除排除名单与点目录，按名排序。"""
+    return sorted((c for c in d.iterdir() if c.is_dir() and not _is_excluded_dir(c.name)),
+                  key=lambda p: p.name.lower())
+
+
+def _dir_has_video(d: Path) -> bool:
+    """识别遍历下存在 ≥1 个非 sample 视频（花絮也计入，供容器判定用）。"""
+    return any(f.suffix.lower() in VIDEO_EXTS and not RE_SAMPLE.search(f.stem)
+               for f in _walk_files_pruned(d))
+
+
+def _is_movie_dir(d: Path) -> bool:
+    """单片影片目录判定：恰一部影片（单 base/单 disc），不要求 NFO。"""
+    videos = [f for f in _walk_files_pruned(d)
+              if f.suffix.lower() in VIDEO_EXTS and not RE_SAMPLE.search(f.stem)]
+    if not videos:
+        return False
+    mains = [f for f in videos if not RE_SUPPLEMENT.search(f.stem)]
+    if not mains:
+        return False  # 只有花絮/预告：不猜归属，交由容器整体判定
+    if (d / "BDMV").is_dir() or (d / "VIDEO_TS").is_dir() \
+            or any(v.suffix.lower() == ".iso" for v in mains):
+        return True
+    bases = set()
+    for v in mains:
+        m = RE_MULTI_CD.match(v.stem)
+        bases.add(m.group(1).strip(" ._-").lower() if m else v.stem.lower())
+    return len(bases) == 1
+
+
 @dataclass
 class Unit:
     id: str                       # 相对 source_root 的 posix 路径，唯一
@@ -64,6 +113,7 @@ class Unit:
     multi_cd: bool = False
     disc: bool = False
     composite: bool = False
+    actress: str | None = None   # 下钻单元的女优段（容器目录名逐字保留）；无女优段为 None
     nfo_path: Path | None = None
     nfo: NfoInfo | None = None
     title: str = ""
@@ -131,7 +181,8 @@ def find_nfo(d: Path, videos: list[Path], multi_cd: bool) -> Path | None:
     return None
 
 
-def _analyze_dir(d: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
+def _analyze_dir(d: Path, rel_id: str,
+                 actress: str | None = None) -> tuple[Unit | None, dict | None]:
     all_files = list(_walk_files_full(d))
     if not all_files and not any(d.iterdir()):
         return None, None
@@ -173,6 +224,7 @@ def _analyze_dir(d: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
             unit = Unit(
                 id=rel_id, path=d, kind="dir", dst_name=d.name,
                 videos=vids, multi_cd=False, disc=disc, composite=True,
+                actress=actress,
                 nfo_path=nfo_path, nfo=info,
                 title=(info.title if info and info.title else d.name),
                 year=(info.year if info else None),
@@ -201,6 +253,7 @@ def _analyze_dir(d: Path, rel_id: str) -> tuple[Unit | None, dict | None]:
     unit = Unit(
         id=rel_id, path=d, kind="dir", dst_name=d.name,
         videos=vids, multi_cd=multi_cd, disc=disc,
+        actress=actress,
         nfo_path=nfo_path, nfo=info,
         title=(info.title if info and info.title else d.name),
         year=(info.year if info else None),
@@ -253,7 +306,55 @@ def scan_source_root(cfg: Config) -> tuple[list[Unit], list[dict]]:
         rel_id = entry.relative_to(root).as_posix()
         try:
             if entry.is_dir():
-                unit, note = _analyze_dir(entry, rel_id)
+                if _own_main_videos(entry) or _has_disc_structure(entry):
+                    # R1：容器根层直接躺正片视频或光盘结构 → 容器自身就是影片目录，绝不拆
+                    unit, note = _analyze_dir(entry, rel_id)
+                else:
+                    kids = _child_dirs(entry)
+                    withvid = [c for c in kids if _dir_has_video(c)]
+                    movies = [c for c in withvid if _is_movie_dir(c)]
+                    if movies and len(movies) == len(withvid):
+                        # R2：纯容器（全部视频内容位于单片子目录）→ 下钻，女优段=容器名
+                        for c in movies:
+                            cu, cn = _analyze_dir(
+                                c, c.relative_to(root).as_posix(), actress=entry.name)
+                            if cn:
+                                notes.append(cn)
+                            if cu:
+                                if cu.nfo and cu.nfo.parse_error:
+                                    notes.append({"level": "warn",
+                                                  "path": str(cu.nfo_path or cu.path),
+                                                  "reason": cu.nfo.parse_error})
+                                cu.flags.append("nested")
+                                units.append(cu)
+                        notes.append({"level": "info", "path": str(entry),
+                                      "reason": f"容器目录：内含 {len(movies)} 个影片目录，"
+                                                f"已按 女优\\影片 拆为独立单元"
+                                                f"（女优段={entry.name}）"})
+                        kept = set(movies)
+                        left_dirs = sorted((c.name for c in entry.iterdir()
+                                            if c.is_dir() and c not in kept),
+                                           key=str.lower)
+                        left_files = sorted((f.name for f in entry.iterdir()
+                                             if f.is_file()), key=str.lower)
+                        parts = []
+                        if left_dirs:
+                            parts.append("子目录 " + "、".join(left_dirs[:5]))
+                        if left_files:
+                            parts.append("文件 " + "、".join(left_files[:5]))
+                        if parts:
+                            notes.append({"level": "warn", "path": str(entry),
+                                          "reason": "容器目录附件残留（不随单元迁移，"
+                                                    "留在源处）：" + "；".join(parts)})
+                        unit, note = None, None
+                    else:
+                        # R3：混合（存在多 base/非单片子目录）或全目录无视频 → 整目录既有语义
+                        unit, note = _analyze_dir(entry, rel_id)
+                        if withvid and len(movies) < len(withvid):
+                            notes.append({"level": "info", "path": str(entry),
+                                          "reason": f"容器目录混合：{len(withvid) - len(movies)}"
+                                                    " 个子目录为多 base/非单片内容，"
+                                                    "整目录回退为复合单元（待人工改判）"})
             elif entry.suffix.lower() in VIDEO_EXTS:
                 unit, note = _analyze_loose(entry, rel_id)
             else:

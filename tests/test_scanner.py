@@ -53,7 +53,9 @@ def test_multi_cd_one_unit(tmp_path):
     assert len(units) == 1 and units[0].multi_cd
 
 
-def test_complex_dir_becomes_batch_unit(tmp_path):
+def test_nested_container_drills_two_units(tmp_path):
+    """纯容器顶层目录下钻：每个单片子目录一个独立单元，女优段=容器名
+    （修订原 test_complex_dir_becomes_batch_unit，依据 D-20261110-01 §4 复议 + owner 拍板 2）。"""
     src = tmp_path / "src"
     src.mkdir()
     d = src / "Pack"
@@ -61,12 +63,14 @@ def test_complex_dir_becomes_batch_unit(tmp_path):
     make_movie(d, "Film A", genres=("动作",))
     make_movie(d, "Film B", genres=("恐怖",))
     units, notes = scanner.scan_source_root(bare_cfg(src))
-    assert len(units) == 1
-    assert units[0].composite is True
-    assert units[0].kind == "dir"
-    assert "composite" in units[0].flags
+    assert len(units) == 2
+    assert {u.id for u in units} == {"Pack/Film A", "Pack/Film B"}
+    assert all(u.actress == "Pack" for u in units)
+    assert all("nested" in u.flags for u in units)
+    assert all(u.composite is False for u in units)
+    assert all(u.kind == "dir" for u in units)
     assert not any(n["level"] == "excluded" for n in notes)
-    assert any(n["level"] == "info" and "复合目录" in n["reason"] for n in notes)
+    assert any(n["level"] == "info" and "容器目录" in n["reason"] for n in notes)
 
 
 def test_extras_sample_trailer_ignored(tmp_path):
@@ -308,3 +312,139 @@ def test_supplement_dirs_not_composite(tmp_path):
     units, _ = scanner.scan_source_root(bare_cfg(src))
     assert len(units) == 1
     assert units[0].composite is False
+
+
+# ---------------- 嵌套容器下钻与女优段（D-20261110-01，Task-01） ----------------
+
+def test_actress_container_drills_into_movie_units(tmp_path):
+    """纯容器（女优目录）下钻：内层单片目录成为独立单元，actress=容器名。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    make_movie(src / "伊藤舞雪", "CAWD-876", title="CAWD-876", tmdb="1")
+    units, notes = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.id == "伊藤舞雪/CAWD-876"
+    assert u.actress == "伊藤舞雪"
+    assert u.dst_name == "CAWD-876"
+    assert u.path == src / "伊藤舞雪" / "CAWD-876"
+    assert u.provider == "tmdb:1"  # 内层 NFO 正常解析
+    assert any(n["level"] == "info" and "伊藤舞雪" in n["reason"] for n in notes)
+
+
+def test_drill_two_containers_actress_segments(tmp_path):
+    """多个容器各自下钻，女优段逐单元等于其容器名，无复合。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    make_movie(src / "一乃あおい", "A-1")
+    make_movie(src / "伊藤舞雪", "B-2")
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 2
+    assert {u.actress for u in units} == {"一乃あおい", "伊藤舞雪"}
+    for u in units:
+        assert u.actress == u.id.split("/")[0]
+    assert not any(u.composite for u in units)
+
+
+def test_top_level_movie_dir_not_drilled(tmp_path):
+    """顶层直接躺正片视频的目录不下钻（R1），actress 保持 None。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    make_movie(src, "Flat Film")
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    assert units[0].id == "Flat Film"
+    assert units[0].actress is None
+    assert "nested" not in units[0].flags
+
+
+def test_disc_container_not_drilled(tmp_path):
+    """BDMV 光盘结构是容器自身影片目录（R1），BDMV 子目录不得当内层影片目录。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "Bluay Set"
+    d.mkdir()
+    (d / "BDMV" / "STREAM").mkdir(parents=True)
+    (d / "BDMV" / "STREAM" / "00000.m2ts").write_bytes(b"B" * 100)
+    (d / "movie.nfo").write_text(nfo_xml(title="Bluay Set"), encoding="utf-8")
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    assert units[0].id == "Bluay Set"
+    assert units[0].disc is True
+    assert units[0].actress is None
+
+
+def test_mixed_container_falls_back_to_composite(tmp_path):
+    """容器内混有多 base 子目录 → 不下钻，整目录回退为复合单元（R3）。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "混杂包"
+    d.mkdir()
+    make_movie(d, "好片A")
+    bad = d / "坏片"
+    bad.mkdir()
+    (bad / "片头.mkv").write_bytes(b"V" * 100)
+    (bad / "片尾.mkv").write_bytes(b"V" * 100)
+    units, notes = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.composite is True and u.id == "混杂包" and u.actress is None
+    assert any(n["level"] == "info" and "混合" in n["reason"] for n in notes)
+
+
+def test_inner_dir_without_nfo_still_drills(tmp_path):
+    """内层目录无 NFO 仍下钻：走既有兜底/人工语义，不拖死整容器。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    make_movie(src / "一乃あおい", "ABC-1", nfo=False)
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.actress == "一乃あおい"
+    assert u.nfo_path is None
+    assert u.flags == ["nested"]
+
+
+def test_inner_dir_multi_base_blocks_drill_to_composite(tmp_path):
+    """容器内一个子目录多 base → 混合，整目录回退为 composite 单元。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "一乃あおい"
+    d.mkdir()
+    make_movie(d, "ABC-1")
+    e = d / "XYZ-9"
+    e.mkdir()
+    (e / "XYZ-9.mkv").write_bytes(b"V" * 100)
+    (e / "OTHER.mkv").write_bytes(b"V" * 100)
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    u = units[0]
+    assert u.composite is True and u.id == "一乃あおい" and u.actress is None
+
+
+def test_videoless_child_dir_warn_and_left_behind(tmp_path):
+    """容器内无视频子目录与非视频文件：warn 残留、不随单元迁移。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    d = src / "一乃あおい"
+    d.mkdir()
+    make_movie(d, "ABC-1")
+    (d / "covers").mkdir()
+    (d / "covers" / "x.jpg").write_bytes(b"J")
+    (d / "poster.jpg").write_bytes(b"P")
+    units, notes = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1 and units[0].actress == "一乃あおい"
+    warns = [n["reason"] for n in notes if n["level"] == "warn"]
+    assert any("残留" in r and "covers" in r and "poster.jpg" in r for r in warns)
+    rels = {f[0] for f in units[0].files}
+    assert "covers/x.jpg" not in rels and "poster.jpg" not in rels
+
+
+def test_unknown_actress_placeholder_kept_verbatim(tmp_path):
+    """占位女优名逐字保留（含 #），不做归一。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    make_movie(src / "#未知女优", "GOV-004")
+    units, _ = scanner.scan_source_root(bare_cfg(src))
+    assert len(units) == 1
+    assert units[0].actress == "#未知女优"
