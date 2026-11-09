@@ -11,9 +11,7 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-from app.core.planner import READY, STATUS_LABELS
+from app.core.planner import READY, STATUS_LABELS, session_dst_root
 
 # 筛选键 → 语义；UI 的 chips 顺序即此顺序
 FILTER_ALL = "all"
@@ -218,9 +216,8 @@ class PlanViewModel:
         类别 = 改判后的目标库名（effective_target_lib，含「兜底库」）。"""
         if not self.output_root:
             return None
-        root = Path(self.output_root)
-        if self.group_by_category:
-            root = root / self.effective_target_lib(unit)
+        root = session_dst_root(self.output_root, self.effective_target_lib(unit),
+                                self.group_by_category)
         return str(root)
 
     def overridden_ids(self) -> list[str]:

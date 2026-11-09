@@ -19,6 +19,7 @@ from .planner import (
     mark_applied,
     mark_undone,
     save_plan,
+    session_dst_root,
 )
 
 
@@ -174,7 +175,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
             raise RuntimeError(f"输出目录不可用：{err}")   # 先于任何文件操作
         out = Path(output_root)
         for u in units:
-            root = out / u["target_lib"] if group_by_category else out
+            root = session_dst_root(out, u["target_lib"], group_by_category)
             u["target_root"] = str(root)
             u["dst_dir"] = str(root / u["dst_name"])   # 复用 planner 组合规则
             u["evidence"] = list(u["evidence"]) + ["本次输出目录（会话级，不改全局配置）"]

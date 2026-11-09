@@ -6,6 +6,9 @@ import sys
 
 import pytest
 
+from pathlib import Path
+
+from app.core import planner
 from app.core.planner import READY, ST_APPLIED, ST_CONFLICT, ST_MULTI, STATUS_LABELS
 from app.ui import viewmodel as vm
 
@@ -347,3 +350,10 @@ def test_effective_output_root_none_without_output(units):
     model = vm.PlanViewModel(units)
     model.set_override("A 规则", "喜剧")
     assert model.effective_output_root(units[0]) is None
+
+
+def test_session_dst_root_rule_shared_with_jobs():
+    """UI 预览与 jobs 落盘必须走同一组合规则（防两处漂移）。"""
+    assert planner.session_dst_root(r"E:\out", "科幻", True) == Path(r"E:\out\科幻")
+    assert planner.session_dst_root(r"E:\out", "科幻", False) == Path(r"E:\out")
+    assert vm.session_dst_root is planner.session_dst_root

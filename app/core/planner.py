@@ -61,6 +61,14 @@ def _quick_provider(d: Path) -> str | None:
     return parse_nfo_file(nfo_path).provider_id
 
 
+def session_dst_root(output_root: str | Path, target_lib: str,
+                     group_by_category: bool) -> Path:
+    """本次输出目录（会话级）下的单元目标根：开启按类别时落「输出根/目标库名」。
+    唯一组合规则——jobs 落盘与 viewmodel 预览均须经此，防止两处漂移。"""
+    root = Path(output_root)
+    return root / target_lib if group_by_category else root
+
+
 def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     created = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     learned = learned_store.load(cfg.runtime_dir)
