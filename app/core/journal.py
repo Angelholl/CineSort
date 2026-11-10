@@ -34,7 +34,8 @@ class Journal:
         self.kind = kind
         self.sid = _sid()
         self.path = self.dir / f"{kind}-{self.sid}.jsonl"
-        self._fh = open(self.path, "a", encoding="utf-8")
+        # 句柄须持存到 close()（逐事件 fsync），不能走 context manager
+        self._fh = open(self.path, "a", encoding="utf-8")  # noqa: SIM115
         self._write({"type": "header", "kind": kind, "sid": self.sid,
                      "meta": meta or {}, "ts": _now_iso()})
 
@@ -119,7 +120,9 @@ def list_sessions(journals_dir: Path) -> list[dict]:
         s = session_summary(f)
         if s:
             out.append(s)
-    out.sort(key=lambda s: s["file"], reverse=True)
+    # 按会话开始时间倒序（执行页承诺「按时间倒序」）：按文件名排会让
+    # undo-* 恒排在 apply-* 之前（kind 前缀先于时间戳参与比较）
+    out.sort(key=lambda s: (s["ts"] or "", s["file"]), reverse=True)
     return out
 
 

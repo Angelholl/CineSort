@@ -1,8 +1,14 @@
 """事务日志测试（评议条件 C6：fsync 落盘 / 容忍末尾半行 / 会话隔离）。"""
 import time
 
-from app.core.journal import (Journal, done_entries, is_valid_session_name,
-                              list_sessions, read_entries, session_summary)
+from app.core.journal import (
+    Journal,
+    done_entries,
+    is_valid_session_name,
+    list_sessions,
+    read_entries,
+    session_summary,
+)
 
 
 def test_roundtrip_and_summary(tmp_path):
@@ -53,3 +59,15 @@ def test_session_name_guard():
     assert not is_valid_session_name("..\\evil.jsonl")
     assert not is_valid_session_name("apply-x.jsonl")
     assert not is_valid_session_name("apply-20261031T101112-0001.txt")
+
+
+def test_list_sessions_sorted_by_time_across_kinds(tmp_path):
+    """执行页承诺「按时间倒序」：较早的 undo 会话不得因文件名前缀
+    （undo- > apply-）恒排在较新的 apply 会话之前。"""
+    u = Journal(tmp_path, "undo", {})
+    u.close()
+    time.sleep(1.1)
+    a = Journal(tmp_path, "apply", {})
+    a.close()
+    names = [s["file"] for s in list_sessions(tmp_path)]
+    assert names[0] == a.path.name and names[1] == u.path.name
