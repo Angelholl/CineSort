@@ -431,3 +431,33 @@ def test_apply_composite_undo_restores(tmp_path):
     assert (cfg.source_root / "Comp Dir").is_dir()      # 整目录回源位
     assert not (scifi / "Comp Dir").exists()
     assert state.plan()["units"][0]["status"] == "batch_target"  # mark_undone 回 ST_BATCH
+
+
+def test_start_preflight_accepts_none(env_state):
+    """审计回归：体检页「运行系统体检」传 ids=None（全量体检语义），
+    必须正常完成，而不是 list(None) TypeError 导致任务失败。"""
+    state, _ = env_state
+    state.start_scan()
+    wait_job(state)
+    state.start_preflight(None)
+    st = wait_job(state)
+    assert st["status"] == "done", st["error"]
+    assert st["result"]["items"]
+
+
+def test_preflight_long_paths_respect_selected_ids(tmp_path):
+    """审计回归：长路径体检与磁盘空间检查同口径——只报本次选中单元。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root / ("あ" * 80), "長" * 120,
+               genres=("科幻",), plot="太空宇宙", tmdb="42")
+    units, notes = scanner.scan_source_root(cfg)
+    plan = build_plan(cfg, units, notes)
+    uid = plan["units"][0]["id"]
+    assert len(plan["units"][0]["dst_dir"]) > 240
+    full = preflight.run_preflight(cfg, plan)
+    assert any(i["code"] == "long_paths" for i in full)
+    selected = preflight.run_preflight(cfg, plan, selected_ids={uid})
+    assert any(i["code"] == "long_paths" for i in selected)   # 选中侧：必须仍报出
+    partial = preflight.run_preflight(cfg, plan, selected_ids={uid + "-not-selected"})
+    assert not any(i["code"] == "long_paths" for i in partial)  # 未选中侧：不得混入

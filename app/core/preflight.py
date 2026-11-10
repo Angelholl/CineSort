@@ -116,11 +116,13 @@ def run_preflight(cfg: Config, plan: dict | None = None,
             "detail": [str(p) for p in leftovers[:10]],
         })
 
-    # 5) 超长路径
+    # 5) 超长路径（与磁盘空间检查同口径：只看本次选中单元）
     if plan:
         longs = []
         for u in plan["units"]:
             if u["status"] not in (READY, ST_BATCH):
+                continue
+            if selected_ids is not None and u["id"] not in selected_ids:
                 continue
             if len(u["dst_dir"]) > LONG_PATH_WARN:
                 longs.append(f"{u['id']} → {len(u['dst_dir'])} 字符")

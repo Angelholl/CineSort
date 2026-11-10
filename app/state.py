@@ -100,11 +100,13 @@ class AppState:
         self.jobs.start("undo", lambda job: jobs_mod.run_undo(self, job, fname))
         return {"ok": True}
 
-    def start_preflight(self, ids: list[str]) -> dict:
+    def start_preflight(self, ids: list[str] | None) -> dict:
         """后台体检。结果（含阻断项清单）在 job.result["items"]，
-        由调用方在任务完成后读取——不得在 UI 线程同步调用 preflight_items。"""
+        由调用方在任务完成后读取——不得在 UI 线程同步调用 preflight_items。
+        ids=None（体检页全量体检语义）归一为空列表：run_preflight 的
+        selected_ids 空集即 None = 查全部单元，不得在此抛 TypeError。"""
         self.jobs.start("preflight",
-                        lambda job: jobs_mod.run_preflight(self, job, list(ids)))
+                        lambda job: jobs_mod.run_preflight(self, job, list(ids or [])))
         return {"ok": True}
 
     def cancel_job(self) -> bool:
