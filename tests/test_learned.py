@@ -96,6 +96,7 @@ def test_forget(tmp_path):
 
 def test_config_learning_defaults(tmp_path):
     from conftest import build_env
+
     from app.core.config import load_config
     cfg = load_config(build_env(tmp_path))
     assert cfg.learning.enabled is True and cfg.learning.min_votes == 2

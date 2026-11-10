@@ -69,11 +69,8 @@ def _verify_tree(root: Path, expected: dict[str, int]) -> None:
 
 def _force_rmtree(path: Path) -> None:
     def _onerror(func, p, _exc):
-        try:
-            os.chmod(p, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
-            func(p)
-        except Exception:
-            raise
+        os.chmod(p, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+        func(p)
     shutil.rmtree(path, onerror=_onerror)
 
 
@@ -97,26 +94,23 @@ def transfer_dir(src: Path, dst: Path, staging_root: Path,
         tmp = base.parent / f"{base.name}({i})"
         i += 1
     marker = tmp / (MARKER_PREFIX + time.strftime("%Y%m%dT%H%M%S"))
-    try:
-        tmp.mkdir(parents=True)
-        marker.write_text("transfer in progress", encoding="utf-8")
-        for rel in sorted(expected):
-            s = src / rel
-            if not s.is_file():
-                raise IncompleteTransfer(f"快照中的文件已消失：{rel}")
-            d = tmp / rel
-            d.parent.mkdir(parents=True, exist_ok=True)
-            _copy_with_retry(s, d)
-            if d.stat().st_size != expected[rel]:
-                raise IncompleteTransfer(f"复制后大小不一致：{rel}")
-            if on_progress:
-                on_progress(rel, expected[rel])
-        _verify_tree(tmp, expected)
-        marker.unlink()
-        os.rename(tmp, dst)                      # staging 与库同卷 → 原子
-    except Exception:
-        # 保留 staging 残留（含标记）与源目录，供 preflight 报告与人工清理
-        raise
+    # 异常直接上抛：staging 残留（含标记）与源目录原地保留，供 preflight 报告与人工清理
+    tmp.mkdir(parents=True)
+    marker.write_text("transfer in progress", encoding="utf-8")
+    for rel in sorted(expected):
+        s = src / rel
+        if not s.is_file():
+            raise IncompleteTransfer(f"快照中的文件已消失：{rel}")
+        d = tmp / rel
+        d.parent.mkdir(parents=True, exist_ok=True)
+        _copy_with_retry(s, d)
+        if d.stat().st_size != expected[rel]:
+            raise IncompleteTransfer(f"复制后大小不一致：{rel}")
+        if on_progress:
+            on_progress(rel, expected[rel])
+    _verify_tree(tmp, expected)
+    marker.unlink()
+    os.rename(tmp, dst)                      # staging 与库同卷 → 原子
     _force_rmtree(src)
     return {"mode": "staging", "staging": str(tmp)}
 
@@ -138,26 +132,23 @@ def transfer_loose(files: list, dst_dir: Path, staging_root: Path,
     if not same:
         marker = dst_dir / (MARKER_PREFIX + time.strftime("%Y%m%dT%H%M%S"))
         marker.write_text("transfer in progress", encoding="utf-8")
-    try:
-        for f in files:
-            rel = f.name
-            if rel not in expected:
-                raise IncompleteTransfer(f"文件不在计划快照中：{rel}")
-            d = dst_dir / rel
-            if same:
-                os.rename(f, d)
-            else:
-                _copy_with_retry(f, d)
-                if d.stat().st_size != expected[rel]:
-                    raise IncompleteTransfer(f"复制后大小不一致：{rel}")
-                f.unlink()
-            if on_progress:
-                on_progress(rel, expected[rel])
-        _verify_tree(dst_dir, expected)
-        if marker:
-            marker.unlink()
-    except Exception:
-        raise
+    for f in files:
+        rel = f.name
+        if rel not in expected:
+            raise IncompleteTransfer(f"文件不在计划快照中：{rel}")
+        d = dst_dir / rel
+        if same:
+            os.rename(f, d)
+        else:
+            _copy_with_retry(f, d)
+            if d.stat().st_size != expected[rel]:
+                raise IncompleteTransfer(f"复制后大小不一致：{rel}")
+            f.unlink()
+        if on_progress:
+            on_progress(rel, expected[rel])
+    _verify_tree(dst_dir, expected)
+    if marker:
+        marker.unlink()
     return {"mode": "rename" if same else "staging"}
 
 

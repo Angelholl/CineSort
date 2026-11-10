@@ -44,7 +44,6 @@ def test_start_apply_passes_output_params(tmp_path, monkeypatch):
     import app.core.jobs as jobs_mod
 
     captured = []
-    orig = jobs_mod.run_apply
 
     def fake_run_apply(state, job, ids, acks, overrides,
                        output_root=None, group_by_category=True):
