@@ -268,3 +268,23 @@ def test_title_evidence_label_distinct():
     assert title_d.level == "title"
     assert any(e.startswith("标题命中") for e in title_d.evidence)
     assert not any(e.startswith("摘要命中") for e in title_d.evidence)
+
+
+def test_learned_lib_removed_from_config_is_ignored(tmp_path):
+    """审计回归：learned.json 指向已删除/改名的库时必须跳过该映射，
+    不得 KeyError 崩掉扫描（build_plan → classify）。"""
+    from conftest import build_env
+
+    from app.core import learned as learned_store
+    from app.core.config import load_config
+
+    cfg = load_config(build_env(tmp_path))
+    learned_store.record(cfg.runtime_dir, ["西部"], "动作", manual=True)
+    learned_store.record(cfg.runtime_dir, ["西部"], "动作", manual=True)  # 达阈值（auto 路径）
+    learned_store.record(cfg.runtime_dir, ["悬疑"], "动作", manual=False)  # 1 票未达阈值（soft 建议路径）
+    cfg.libraries.pop("动作")                       # 用户随后删除该库
+    d = classify(unit(("西部",)), cfg, learned_store.load(cfg.runtime_dir))
+    assert d.level == "fallback" and d.target == "兜底库"
+    d2 = classify(unit(("悬疑",)), cfg, learned_store.load(cfg.runtime_dir))
+    assert d2.level == "fallback" and d2.target == "兜底库"
+    assert not any("自学习" in e for e in d2.evidence)   # 失效库不得作低置信建议

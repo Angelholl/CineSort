@@ -163,13 +163,17 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
     mapped = mapped_s + [w for w in mapped_w if w not in mapped_s]
     min_votes = max(int(cfg.learning.min_votes), 1)
 
-    # 未映射题材的自学习命中：达阈值自动生效，未达阈值作低置信建议
+    # 未映射题材的自学习命中：达阈值自动生效，未达阈值作低置信建议。
+    # learned.json 里的库名必须仍存在于当前配置——库被删除/改名后旧映射
+    # 不得参与决策（learned_pick 取 cfg.libraries[lib] 会 KeyError 崩扫描）。
     auto_hits, soft_hits = [], []
     for g in unmapped:
         hit = best_for(learned, g)
         if not hit:
             continue
         lib, votes, manual = hit
+        if lib not in cfg.libraries:
+            continue
         if votes >= min_votes:
             auto_hits.append((g, lib, votes, manual))
         elif votes > 0:
