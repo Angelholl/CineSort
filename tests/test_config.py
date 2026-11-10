@@ -217,3 +217,20 @@ def test_config_hash_changes_with_title(tmp_path):
     other = load_config(build_env(tmp_path))
     other.title = TitleOptions(enabled=False, min_score=0.5)
     assert plain.config_hash() != other.config_hash()
+
+
+def test_config_hash_covers_on_conflict_plot_learning(tmp_path):
+    """审计回归：影响计划生成的配置（on_conflict / plot / learning）必须进哈希，
+    否则外部手改 config.toml 后冻结计划的漂移检测形同虚设。"""
+    from app.core.config import LearningOptions, PlotOptions
+
+    h0 = load_config(build_env(tmp_path)).config_hash()
+    other1 = load_config(build_env(tmp_path))
+    other1.on_conflict = "rename"
+    other2 = load_config(build_env(tmp_path))
+    other2.plot = PlotOptions(enabled=True, min_score=3.5, normalize=False)
+    other3 = load_config(build_env(tmp_path))
+    other3.learning = LearningOptions(enabled=True, min_votes=5)
+    assert other1.config_hash() != h0, "on_conflict 影响 build_plan 冲突状态，必须进哈希"
+    assert other2.config_hash() != h0, "plot.min_score 影响摘要择优判定，必须进哈希"
+    assert other3.config_hash() != h0, "learning.min_votes 影响自学习自动生效，必须进哈希"

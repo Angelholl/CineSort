@@ -109,8 +109,14 @@ class Config:
             "weak_genre_aliases": dict(sorted(self.weak_genre_aliases.items())),
             "fallback_path": normcase(self.fallback_path),
             "strategy": self.strategy,
+            "on_conflict": self.on_conflict,
             "title": {"enabled": self.title.enabled,
                       "min_score": self.title.min_score},
+            "plot": {"enabled": self.plot.enabled,
+                     "min_score": self.plot.min_score,
+                     "normalize": self.plot.normalize},
+            "learning": {"enabled": self.learning.enabled,
+                         "min_votes": self.learning.min_votes},
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
