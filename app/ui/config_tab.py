@@ -223,6 +223,28 @@ class ConfigTab(QWidget):
 
     # ------------------------------------------------------------ 小工具
 
+    def _set_text_stable(self, edit: QPlainTextEdit, text: str) -> None:
+        """内容不变则不重设文档：QPlainTextEdit.setPlainText 即使文本相同
+        也会把滚动位置与光标归零——慢 tick 每 2s 回填一次，会把正在浏览
+        别名表的用户拽回顶部（GUI 反馈：别名表自动回滚到最上面）。"""
+        if edit.toPlainText() == text:
+            return
+        keep = edit.verticalScrollBar().value()
+        edit.setPlainText(text)
+        edit.verticalScrollBar().setValue(keep)
+
+    def _table_matches(self, table: QTableWidget, rows) -> bool:
+        """当前表格内容与 rows 完全一致（含行数）：一致则跳过重建，
+        保留滚动与选中。"""
+        if table.rowCount() != len(rows):
+            return False
+        for r, row in enumerate(rows):
+            for c, text in enumerate(row):
+                it = table.item(r, c)
+                if (it.text() if it else "") != str(text):
+                    return False
+        return True
+
     def _hbox(self, *widgets) -> QWidget:
         w = QWidget()
         h = QHBoxLayout(w)
@@ -313,11 +335,12 @@ class ConfigTab(QWidget):
             self.f_learning_enabled.setChecked(form["learning_enabled"])
             self.f_learning_min_votes.setValue(form["learning_min_votes"])
             self.f_priority_text.setText(form["priority_text"])
-            self.f_alias_text.setPlainText(form["alias_text"])
-            self.f_weak_alias_text.setPlainText(form["weak_alias_text"])
-            self.lib_table.setRowCount(0)
-            for row in form["library_rows"]:
-                self._add_library_row(row)
+            self._set_text_stable(self.f_alias_text, form["alias_text"])
+            self._set_text_stable(self.f_weak_alias_text, form["weak_alias_text"])
+            if not self._table_matches(self.lib_table, form["library_rows"]):
+                self.lib_table.setRowCount(0)
+                for row in form["library_rows"]:
+                    self._add_library_row(row)
         finally:
             self._loading = False
         self._dirty = False
@@ -393,12 +416,18 @@ class ConfigTab(QWidget):
 
     def _render_learned(self, items: list[dict]) -> None:
         rows = learned_rows(items)
-        self.learned_table.setRowCount(0)
         if not rows:
+            self.learned_table.setRowCount(0)
             self.learned_hint.setText("暂无自学习记录")
             self.learned_hint.show()
             return
         self.learned_hint.hide()
+        # 慢 tick 每 2s 调一次：内容没变就跳过重建，保留滚动/选中，
+        # 避免浏览清单时被周期性拽回顶部。空态提示必须在跳过之外更新。
+        if self._table_matches(self.learned_table,
+                               [list(r[:5]) for r in rows]):
+            return
+        self.learned_table.setRowCount(0)
         for r, row in enumerate(rows):
             genre, lib, votes, manual, last, key, keylib = row
             self.learned_table.insertRow(r)

@@ -426,3 +426,77 @@ def test_title_controls_rendered_next_to_plot_group(qapp):
     it_ms = g_ms.itemAtPosition(r_ms, 1)
     assert it_ms is not None and it_ms.widget() is tab.f_title_min_score
     tab.deleteLater()
+
+
+# ------------------------------------- 慢 tick 回填不得重置滚动（GUI 反馈回归）
+
+def test_set_text_stable_same_content_keeps_cursor(qapp):
+    """_set_text_stable：内容相同时不得碰文档——setPlainText 对相同文本
+    也会把光标与滚动归零，这正是「别名表自动回滚到最上面」的根因。"""
+    from PySide6.QtGui import QTextCursor
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    box = tab.f_alias_text
+    box.moveCursor(QTextCursor.End)
+    pos = box.textCursor().position()
+    assert pos > 0
+    tab._set_text_stable(box, box.toPlainText())      # 相同内容 → 整段跳过
+    assert box.textCursor().position() == pos
+    tab._set_text_stable(box, "A=科幻\nB=动作")       # 内容真变 → 更新
+    assert box.toPlainText() == "A=科幻\nB=动作"
+    tab.deleteLater()
+
+
+def test_slow_tick_refresh_keeps_alias_view(qapp):
+    """回归（GUI 反馈：别名表自动回滚到最上面）：非 dirty 慢 tick 回填
+    不得重置别名框光标/滚动。别名行数多（40 行）时用户正在往下浏览。"""
+    from PySide6.QtGui import QTextCursor
+    desc = full_describe()
+    desc["genre_aliases"] = {f"alias-{i:02d}": "科幻" for i in range(40)}
+    tab = ConfigTab(StubState(desc), toast=lambda m: None)
+    box = tab.f_alias_text
+    box.moveCursor(QTextCursor.End)
+    pos = box.textCursor().position()
+    assert pos > 0
+    tab.refresh()                                     # 慢 tick，force=False
+    assert box.textCursor().position() == pos         # 视图原地保持
+    tab.deleteLater()
+
+
+def test_slow_tick_refresh_keeps_lib_table_selection(qapp):
+    """库表同理：非 dirty 回填跳过内容一致的重建，选中与滚动不丢。"""
+    desc = full_describe()
+    desc["libraries"] = [
+        {"name": f"库{i:02d}", "path": f"D:/lib{i:02d}", "keywords": [],
+         "keywords_weighted": {}} for i in range(30)]
+    tab = ConfigTab(StubState(desc), toast=lambda m: None)
+    tab.lib_table.selectRow(7)
+    tab.refresh()
+    assert tab.lib_table.currentRow() == 7
+    tab.deleteLater()
+
+
+def test_slow_tick_refresh_keeps_learned_selection(qapp):
+    """自学习清单每次慢 tick 都会渲染（不受 dirty 保护），内容一致时
+    必须跳过重建，否则浏览清单时每 2s 被拽回顶部。"""
+    learned = [{"key": f"k{i}", "genre": f"题{i}", "lib": "电影",
+                "votes": i + 1, "manual": 0, "last": "2026-11-01"}
+               for i in range(20)]
+    tab = ConfigTab(StubState(full_describe(), learned=learned),
+                    toast=lambda m: None)
+    tab.learned_table.selectRow(3)
+    tab.refresh()
+    assert tab.learned_table.currentRow() == 3
+    tab.deleteLater()
+
+
+def test_learned_render_still_updates_on_change(qapp):
+    """内容真变（忘记一条）时重建路径不受跳过优化影响。"""
+    learned = [{"key": "k1", "genre": "科幻", "lib": "电影",
+                "votes": 5, "manual": 1, "last": "2026-11-01"}]
+    stub = StubState(full_describe(), learned=learned)
+    tab = ConfigTab(stub, toast=lambda m: None)
+    assert tab.learned_table.rowCount() == 1
+    tab._on_forget("k1", "电影")
+    assert tab.learned_table.rowCount() == 0          # 空态立即渲染
+    assert not tab.learned_hint.isHidden()
+    tab.deleteLater()
