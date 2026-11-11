@@ -491,3 +491,36 @@ def test_override_candidates_fallback_when_config_unreadable(qapp, tmp_path):
         assert "科幻" not in items and "动作" in items
     finally:
         tab.deleteLater()
+
+
+def test_multi_version_override_passes_apply_gate(qapp):
+    """回归（2026-11-12 反馈）：多版本单元改判后不再被「不可执行（冲突/残留）」拦截。"""
+    units = fake_units(2, seed=3)
+    for u in units:
+        u["status"] = "multi_version"
+        u["default_selected"] = False
+
+    class GateStubState:
+        def __init__(self):
+            self.preflight_ids = None
+
+        def plan(self):
+            return {"units": units}
+
+        def start_preflight(self, ids):
+            self.preflight_ids = ids
+
+    stub = GateStubState()
+    toasts: list[str] = []
+    tab = PlanTab(stub, None, toast=toasts.append)
+    try:
+        ids = [u["id"] for u in tab.vm.rows()]
+        for i in ids:
+            tab.vm.checked.add(i)
+            tab.vm.set_override(i, "科幻")
+        assert tab.vm.can_apply() is True           # 修复前 False（拦截源）
+        tab._apply_selected()
+        assert "不可执行" not in "".join(toasts)     # 修复前正是这条 toast
+        assert stub.preflight_ids == ids            # 走到体检而非拦截
+    finally:
+        tab.deleteLater()

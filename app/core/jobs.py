@@ -14,6 +14,7 @@ from .journal import Journal, done_entries, is_valid_session_name
 from .planner import (
     READY,
     ST_BATCH,
+    ST_MULTI,
     build_plan,
     check_plan_freshness,
     load_plan,
@@ -146,10 +147,11 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     if problems:
         raise RuntimeError("计划已过期，未执行任何操作。" + "；".join(problems[:5]))
     units = [u for u in plan["units"] if u["id"] in set(ids)]
-    # ST_BATCH（整目录待改判）仅在人工指定目标库后放行
+    # ST_BATCH（整目录待改判）/ST_MULTI（多版本需确认）仅在人工指定目标库后放行
     bad = [u["id"] for u in units
            if u["status"] != READY
-           and not (u["status"] == ST_BATCH and overrides.get(u["id"]))]
+           and not (u["status"] in (ST_BATCH, ST_MULTI)
+                    and overrides.get(u["id"]))]
     if bad:
         raise RuntimeError("以下影片不在可执行状态：" + "、".join(bad))
     if not units:

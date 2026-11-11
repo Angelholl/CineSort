@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .config import Config
 from .fsops import find_staging_leftovers, split_drive, staging_for_root
-from .planner import READY, ST_BATCH
+from .planner import READY, ST_BATCH, ST_MULTI
 
 LONG_PATH_WARN = 240
 
@@ -81,7 +81,7 @@ def run_preflight(cfg: Config, plan: dict | None = None,
 
     # 3) 磁盘空间预检（C6，跨盘复制场景）
     if plan:
-        units = [u for u in plan["units"] if u["status"] in (READY, ST_BATCH) and
+        units = [u for u in plan["units"] if u["status"] in (READY, ST_BATCH, ST_MULTI) and
                  (selected_ids is None or u["id"] in selected_ids)]
         needed_by_drive: dict[str, int] = {}
         sample_by_drive: dict[str, Path] = {}
@@ -120,7 +120,7 @@ def run_preflight(cfg: Config, plan: dict | None = None,
     if plan:
         longs = []
         for u in plan["units"]:
-            if u["status"] not in (READY, ST_BATCH):
+            if u["status"] not in (READY, ST_BATCH, ST_MULTI):
                 continue
             if selected_ids is not None and u["id"] not in selected_ids:
                 continue

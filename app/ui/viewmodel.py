@@ -16,6 +16,7 @@ from pathlib import Path
 from app.core.planner import (
     READY,
     ST_BATCH,
+    ST_MULTI,
     STATUS_LABELS,
     session_dst_root,
     unit_dst_dir,
@@ -197,10 +198,12 @@ class PlanViewModel:
         return sum(u["total_size"] for u in self._units if u["id"] in self.checked)
 
     def _executable(self, u: dict) -> bool:
-        """单元是否可执行：READY 直接可执行；ST_BATCH（整目录）须人工改判解锁。"""
+        """单元是否可执行：READY 直接可执行；ST_BATCH（整目录）/ST_MULTI
+        （多版本需确认）须人工改判指定目标库后解锁。"""
         if u["status"] == READY:
             return True
-        return u["status"] == ST_BATCH and bool(self.overrides.get(u["id"]))
+        return (u["status"] in (ST_BATCH, ST_MULTI)
+                and bool(self.overrides.get(u["id"])))
 
     def checked_not_ready(self) -> list[dict]:
         """勾选了但状态不可执行的单元——UI 应禁用执行并在详情区提示。"""

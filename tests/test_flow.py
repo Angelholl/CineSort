@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import build_env, make_movie
@@ -16,7 +18,7 @@ from app.core import jobs as jobs_mod
 from app.core import preflight, scanner
 from app.core.config import ConfigError, load_config
 from app.core.journal import list_sessions
-from app.core.planner import build_plan
+from app.core.planner import build_plan, check_plan_freshness
 from app.state import AppState
 
 
@@ -461,3 +463,84 @@ def test_preflight_long_paths_respect_selected_ids(tmp_path):
     assert any(i["code"] == "long_paths" for i in selected)   # 选中侧：必须仍报出
     partial = preflight.run_preflight(cfg, plan, selected_ids={uid + "-not-selected"})
     assert not any(i["code"] == "long_paths" for i in partial)  # 未选中侧：不得混入
+
+
+# ---------------- 放行 ST_MULTI：多版本人工确认后执行（2026-11-12 反馈） ----------------
+
+def _make_multi_version(cfg, base):
+    """同 provider id 两个版本/副本 → planner 组为 ST_MULTI（默认不勾选）。"""
+    make_movie(cfg.source_root, base, title=base, genres=("西部",),
+               plot="乡村爱情", tmdb="77")
+    make_movie(cfg.source_root, base + " (扩展版)", title=base + " (扩展版)",
+               genres=("西部",), plot="乡村爱情", tmdb="77")
+
+
+def test_plan_groups_same_provider_as_multi_version(tmp_path):
+    """多版本分组钉：同 tmdb 两副本 → ST_MULTI + default_selected=False。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_multi_version(cfg, "Same Movie")
+    units, notes = scanner.scan_source_root(cfg)
+    plan = build_plan(cfg, units, notes)
+    assert [u["status"] for u in plan["units"]] == ["multi_version", "multi_version"]
+    assert all(u["default_selected"] is False for u in plan["units"])
+
+
+def test_apply_multi_version_requires_override(tmp_path):
+    """负控：多版本未人工确认不得执行（与 ST_BATCH 同门）。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_multi_version(cfg, "Same Movie")
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    ids = [u["id"] for u in state.plan()["units"]]
+    state.start_apply(ids, {"jellyfin_running"}, {})
+    st = wait_job(state)
+    assert st["status"] == "failed"
+    assert "不在可执行状态" in st["error"]
+    assert (cfg.source_root / "Same Movie").is_dir()      # 源未动
+
+
+def test_apply_multi_version_after_override_moves(tmp_path):
+    """回归（2026-11-12 反馈）：改判后放行，仅搬改判的那一部，另一部不动。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_multi_version(cfg, "Same Movie")
+    scifi = cfg.libraries["科幻"].path
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    ids = sorted(u["id"] for u in state.plan()["units"])
+    state.start_apply([ids[0]], {"jellyfin_running"}, {ids[0]: "科幻"})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["moved"] == 1
+    assert (scifi / ids[0]).is_dir()
+    assert not (cfg.source_root / ids[0]).exists()
+    assert (cfg.source_root / ids[1]).is_dir()
+
+
+def test_preflight_and_freshness_cover_multi_version(tmp_path, monkeypatch):
+    """回归：多版本单元纳入长路径/磁盘体检与 apply 前源快照校验（修复前全部跳过）。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    _make_multi_version(cfg, "混" * 165)
+    state = AppState(cfg_path)
+    state.start_scan()
+    wait_job(state)
+    plan = state.plan()
+    ids = sorted(u["id"] for u in plan["units"])
+
+    items = preflight.run_preflight(cfg, plan)
+    lp = [i for i in items if i["code"] == "long_paths"]
+    assert lp and any(ids[0] in d for d in lp[0]["detail"])
+
+    usage = SimpleNamespace(total=1 << 30, used=1 << 30, free=0)
+    monkeypatch.setattr(preflight.shutil, "disk_usage", lambda p: usage)
+    items = preflight.run_preflight(cfg, plan)
+    assert any(i["code"] == "disk_space" for i in items)
+
+    shutil.rmtree(cfg.source_root / ids[0])
+    problems = check_plan_freshness(cfg, plan)
+    assert any("源已不存在" in p for p in problems)

@@ -414,3 +414,18 @@ def test_stats_fallback_ratio_excludes_composite():
     assert st["total"] == 2
     assert st["composite"] == 1
     assert st["fallback_ratio"] == 1.0   # 分母 1（2−1）而非 2
+
+
+def test_multi_version_gate_requires_override():
+    """ST_MULTI 多版本单元：无人工改判不得执行，改判后解锁（2026-11-12 反馈）。"""
+    u = make_unit("G 多版本", level="title", status=planner.ST_MULTI,
+                  lib="兜底库", default_selected=False, genres=())
+    model = vm.PlanViewModel([u])
+    model.checked.add(u["id"])
+    assert u["id"] in {x["id"] for x in model.checked_not_ready()}
+    assert model.can_apply() is False
+    assert model._executable(u) is False
+    model.set_override(u["id"], "科幻")
+    assert model._executable(u) is True
+    assert model.checked_not_ready() == []
+    assert model.can_apply() is True
