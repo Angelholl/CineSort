@@ -54,6 +54,7 @@ from .table_cells import (
 )
 from .viewmodel import (
     PlanViewModel,
+    blocked_toast,
     card_tones,
     confidence_badge,
     human_size,
@@ -441,7 +442,7 @@ class PlanTab(QWidget):
             return
         bad = self.vm.checked_not_ready()
         if bad:
-            self.toast(f"有 {len(bad)} 部不可执行（冲突/残留），请先处理或取消勾选")
+            self.toast(blocked_toast(bad))
             return
         try:
             self.state.start_preflight(ids)

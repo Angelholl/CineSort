@@ -98,6 +98,32 @@ def card_tones(stats: dict) -> list[tuple[str, str, str]]:
             for v, label, tone in rows]
 
 
+def blocked_toast(units: list[dict], max_show: int = 2) -> str:
+    """执行被拦时点名单元与真实原因，替代笼统的「冲突/残留」措辞。
+
+    可改判解锁的（ST_BATCH/ST_MULTI）给改判指引；硬阻断（同名冲突/
+    已在位/半成品残留）提示处理或取消勾选；混合时两种指引都给。
+    超出 max_show 个单元折叠为「等 N 部」。
+    """
+    def _name(u: dict) -> str:
+        reason = STATUS_LABELS.get(u["status"], u["status"])
+        return f"《{u['label']}》{reason}"
+
+    names = "、".join(_name(u) for u in units[:max_show])
+    if len(units) > max_show:
+        names += f" 等 {len(units)} 部"
+    head = f"有 {len(units)} 部不可执行：" if len(units) > 1 else "不可执行："
+    unlockable = any(u["status"] in (ST_BATCH, ST_MULTI) for u in units)
+    hard = any(u["status"] not in (ST_BATCH, ST_MULTI) for u in units)
+    if unlockable and hard:
+        tail = "——可改判的请在详情面板指定目标库，其余请处理或取消勾选"
+    elif unlockable:
+        tail = "——请在详情面板改判指定目标库"
+    else:
+        tail = "——请先处理或取消勾选"
+    return head + names + tail
+
+
 class PlanViewModel:
     """一次扫描对应的计划视图状态。筛选/搜索切换不得破坏勾选与改判。"""
 

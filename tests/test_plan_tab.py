@@ -524,3 +524,31 @@ def test_multi_version_override_passes_apply_gate(qapp):
         assert stub.preflight_ids == ids            # 走到体检而非拦截
     finally:
         tab.deleteLater()
+
+
+def test_blocked_toast_names_unit_and_reason(qapp):
+    """回归（2026-11-12 反馈）：拦截 toast 点名单元与真实原因，替代笼统措辞。"""
+    units = fake_units(1, seed=9)
+    for u in units:
+        u["status"] = "multi_version"
+        u["default_selected"] = False
+
+    class GateStubState:
+        def plan(self):
+            return {"units": units}
+
+        def start_preflight(self, ids):
+            raise AssertionError("门未拦截，不应走到体检")
+
+    toasts: list[str] = []
+    tab = PlanTab(GateStubState(), None, toast=toasts.append)
+    try:
+        u = tab.vm.rows()[0]
+        tab.vm.checked.add(u["id"])
+        tab._apply_selected()
+        assert len(toasts) == 1
+        assert f"《{u['label']}》多版本需确认" in toasts[0]
+        assert "请在详情面板改判指定目标库" in toasts[0]
+        assert "冲突/残留" not in toasts[0]
+    finally:
+        tab.deleteLater()

@@ -429,3 +429,33 @@ def test_multi_version_gate_requires_override():
     assert model._executable(u) is True
     assert model.checked_not_ready() == []
     assert model.can_apply() is True
+
+
+# ---------------- 不可执行 toast 点名真实原因（2026-11-12 反馈） ----------------
+
+def test_blocked_toast_names_unlockable_units():
+    """改判可解：点名单元+真实原因+改判指引，不再笼统称「冲突/残留」。"""
+    u1 = make_unit("A 片", level="title", status=planner.ST_MULTI,
+                   lib="兜底库", default_selected=False, genres=())
+    msg = vm.blocked_toast([u1])
+    assert msg == "不可执行：《A 片》多版本需确认——请在详情面板改判指定目标库"
+    assert "冲突/残留" not in msg
+
+
+def test_blocked_toast_mixed_and_fold():
+    """混合原因给双指引；超过 2 个折叠为「等 N 部」；硬阻断只给处理指引。"""
+    u1 = make_unit("A 片", level="title", status=planner.ST_MULTI,
+                   lib="兜底库", default_selected=False, genres=())
+    u2 = make_unit("B 片", level="composite", status=planner.ST_BATCH,
+                   lib="兜底库", default_selected=False, genres=())
+    u3 = make_unit("C 片", level="rule", status=planner.ST_CONFLICT,
+                   lib="兜底库", default_selected=False, genres=())
+    u4 = make_unit("D 片", level="rule", status=planner.ST_INCOMPLETE,
+                   lib="兜底库", default_selected=False, genres=())
+    msg = vm.blocked_toast([u1, u2, u3, u4])
+    assert msg.startswith("有 4 部不可执行：")
+    assert "《A 片》多版本需确认" in msg and "《B 片》整目录待改判" in msg
+    assert "等 4 部" in msg
+    assert "可改判的请在详情面板指定目标库" in msg and "取消勾选" in msg
+    hard = vm.blocked_toast([u3])
+    assert hard == "不可执行：《C 片》同名冲突——请先处理或取消勾选"
