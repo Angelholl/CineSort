@@ -47,6 +47,13 @@ class AppState:
         with self._plan_lock:
             self._plan_cache = None
 
+    def config_hash(self) -> str | None:
+        """当前配置哈希；配置非法时返回 None（计划页过期横幅据此不误报）。"""
+        try:
+            return load_config(self.config_path).config_hash()
+        except ConfigError:
+            return None
+
     def config_describe(self) -> tuple[dict | None, str | None]:
         try:
             cfg = load_config(self.config_path)

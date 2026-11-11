@@ -6,8 +6,10 @@ state=None 时进入演示模式（假数据，任务按钮禁用），供样式
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -122,6 +125,16 @@ class PlanTab(QWidget):
         self.empty_hint.hide()
         root.addWidget(self.empty_hint)
 
+        # 配置漂移横幅：计划是旧配置时代扫描的产物时提示重扫（防止拿旧
+        # 判定勾选执行——执行前体检会拦，但视觉上先一步说明更直观）。
+        self.stale_hint = QLabel(
+            "⚠ 配置在本次扫描后有变更，下方计划仍是旧配置的判定结果"
+            "——请点右下角「重新扫描」更新后再勾选执行。")
+        self.stale_hint.setWordWrap(True)
+        self.stale_hint.setStyleSheet(f"color:{theme.WARN};")
+        self.stale_hint.hide()
+        root.addWidget(self.stale_hint)
+
         self.splitter = QSplitter(Qt.Horizontal)
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -151,6 +164,8 @@ class PlanTab(QWidget):
                 head.setTextAlignment(align | Qt.AlignVCenter)
         self.table.itemSelectionChanged.connect(self._show_detail)
         self.table.itemChanged.connect(self._on_item_changed)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.splitter.addWidget(self.table)
         self.splitter.addWidget(self._detail_panel())
         self.splitter.setStretchFactor(0, 3)
@@ -277,6 +292,9 @@ class PlanTab(QWidget):
             self.vm = PlanViewModel(self.demo_units or [])
         else:
             plan = self.state.plan()
+            # 过期横幅必须在 digest 早退之前更新：改配置不动 plan，
+            # digest 不变时若不在这里判一次，横幅永远不亮。
+            self._update_stale_hint(plan)
             digest = plan_digest(plan) if plan else None
             if not force and digest == self._digest:
                 return
@@ -474,7 +492,58 @@ class PlanTab(QWidget):
         self.btn_clear_out.setEnabled(has)
         self.chk_by_category.setEnabled(has)
 
+    def _update_stale_hint(self, plan: dict | None) -> None:
+        """计划 config_hash 与当前配置不一致 → 计划页顶部挂过期横幅。
+
+        计划没有哈希（旧版 plan.json / 演示数据）或配置非法（config_hash
+        为 None）时不判过期也不亮横幅——宁可无提示也不误报。
+        """
+        if plan is None or self.state is None:
+            self.stale_hint.hide()
+            return
+        plan_hash = plan.get("config_hash")
+        if not plan_hash:
+            self.stale_hint.hide()
+            return
+        cur = self.state.config_hash()
+        self.stale_hint.setVisible(bool(cur) and plan_hash != cur)
+
     # ------------------------------------------------------------ 交互
+
+    def _on_table_context_menu(self, pos) -> None:
+        """右键影片行：打开影片所在目录（便于看内容辅助改判）。"""
+        row = self.table.rowAt(pos.y())
+        if not (0 <= row < len(self._rows)):
+            return
+        if row != self.table.currentRow():
+            self.table.selectRow(row)      # 右键即选中，详情面板同步
+        self._show_row_menu(self._rows[row],
+                            self.table.viewport().mapToGlobal(pos))
+
+    def _show_row_menu(self, u: dict, global_pos) -> None:
+        menu = QMenu(self)
+        act_open = menu.addAction("打开影片所在目录")
+        self._handle_row_menu_choice(u, menu.exec(global_pos), act_open)
+
+    def _handle_row_menu_choice(self, u: dict, chosen, act_open) -> None:
+        """菜单选择落点（纯逻辑，可单测）：选中「打开影片所在目录」才开。"""
+        if chosen is act_open:
+            self._open_source_dir(u)
+
+    def _open_source_dir(self, u: dict) -> None:
+        """目录型单元=目录本身；散装文件单元=其父目录（所在目录语义）。
+        单元已不在源处（如执行搬运后）不猜父级，直接提示。"""
+        src = Path(u["src"])
+        if u.get("kind") == "file":
+            d = src.parent if src.is_file() else None
+        elif src.is_dir():
+            d = src
+        else:
+            d = None
+        if d is None or not d.is_dir():
+            self.toast(f"影片目录已不存在（可能已执行搬运）：{src}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
 
     def set_filter(self, key: str) -> None:
         self.vm.set_filter(key)

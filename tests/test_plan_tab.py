@@ -271,3 +271,156 @@ def test_demo_units_carry_actress_fields():
     for r in with_actress:
         assert r["actress"] in r["dst_dir"]
         assert r["actress"] in r["src"]
+
+
+
+
+# ---------------- 右键打开影片所在目录 + 配置过期横幅（2026-11-11 GUI 反馈） ----------------
+
+class _PlanStubState:
+    """带 plan 与 config_hash 的最小 stub：横幅/右键测试用，不碰磁盘。"""
+
+    def __init__(self, plan=None, config_hash="hash-new"):
+        self._plan = plan
+        self.hash = config_hash
+
+    def plan(self):
+        return self._plan
+
+    def config_hash(self):
+        return self.hash
+
+
+def _stub_plan(config_hash="hash-old", src=None):
+    units = fake_units(3, seed=5)
+    if src is not None:
+        for u in units:
+            u["src"] = str(src)
+    return {"units": units, "config_hash": config_hash}
+
+
+def test_context_menu_routes_to_menu_with_selected_row(qapp, tmp_path, monkeypatch):
+    """回归（GUI 反馈）：计划行右键 →「打开影片所在目录」，方便看内容改判。
+
+    QMenu.exec 是 Shiboken 静态分发、offscreen 下模态循环不可自终止
+    （monkeypatch 拦不住 C++ 路由，曾把 CI 挂死）——故单测在
+    _show_row_menu 注入替身只验证行映射与选中，菜单结构与选择分支
+    分别由 _handle_row_menu_choice 的纯逻辑用例覆盖，真菜单走冒烟目验。
+    """
+    from PySide6.QtCore import QPoint
+
+    movie_dir = tmp_path / "影片A"
+    movie_dir.mkdir()
+    tab = PlanTab(_PlanStubState(_stub_plan(src=movie_dir)), None,
+                  toast=lambda m: None)
+    tab.refresh(force=True)
+    shown: list[tuple[dict, object]] = []
+    monkeypatch.setattr(tab, "_show_row_menu",
+                        lambda u, pos: shown.append((u, pos)))
+    tab._on_table_context_menu(QPoint(5, 16))   # 第 0 行（行高 32）
+    assert len(shown) == 1
+    assert shown[0][0]["src"] == str(movie_dir)
+    assert tab.table.currentRow() == 0          # 右键即选中，详情面板同步
+    tab.deleteLater()
+
+
+def test_row_menu_choice_picked_opens_source_dir(qapp, tmp_path, monkeypatch):
+    """选择分支（纯逻辑）：点中「打开影片所在目录」→ 打开目录型单元本身。"""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    movie_dir = tmp_path / "影片A"
+    movie_dir.mkdir()
+    tab = PlanTab(_PlanStubState(), None, toast=lambda m: None)
+    opened: list[QUrl] = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(url))
+    act = object()          # 哨兵「选中项」，等价于 menu.addAction 的返回值
+    tab._handle_row_menu_choice({"src": str(movie_dir), "kind": "dir"},
+                                chosen=act, act_open=act)
+    assert opened == [QUrl.fromLocalFile(str(movie_dir))]
+    tab.deleteLater()
+
+
+def test_row_menu_choice_cancelled_does_not_open(qapp, monkeypatch):
+    """取消/点了别的（exec 返回 None 或非目标项）→ 不打开。"""
+    from PySide6.QtGui import QDesktopServices
+
+    tab = PlanTab(_PlanStubState(), None, toast=lambda m: None)
+    opened: list = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(url))
+    act = object()
+    tab._handle_row_menu_choice({"src": "D:/x", "kind": "dir"},
+                                chosen=None, act_open=act)
+    tab._handle_row_menu_choice({"src": "D:/x", "kind": "dir"},
+                                chosen=object(), act_open=act)
+    assert opened == []
+    tab.deleteLater()
+
+
+def test_open_source_dir_loose_file_uses_parent(qapp, tmp_path, monkeypatch):
+    """散装文件单元「所在目录」= 父目录。"""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    video = tmp_path / "Movie.mp4"
+    video.write_bytes(b"x")
+    tab = PlanTab(_PlanStubState(), None, toast=lambda m: None)
+    opened: list[QUrl] = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(url))
+    tab._open_source_dir({"src": str(video), "kind": "file"})
+    assert opened == [QUrl.fromLocalFile(str(tmp_path))]
+    tab.deleteLater()
+
+
+def test_open_source_dir_missing_toasts_and_skips(qapp, tmp_path, monkeypatch):
+    """目录单元已不在源处（执行搬运后）→ 提示，不猜父级不误开。"""
+    from PySide6.QtGui import QDesktopServices
+    toasts: list[str] = []
+    opened: list = []
+    tab = PlanTab(_PlanStubState(), None, toast=toasts.append)
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(url))
+    tab._open_source_dir({"src": str(tmp_path / "已消失"), "kind": "dir"})
+    assert opened == []
+    assert toasts and "已不存在" in toasts[-1]
+    tab.deleteLater()
+
+
+def test_context_menu_outside_rows_is_noop(qapp, monkeypatch):
+    """右键空白区（行号越界）不弹菜单不报错。"""
+    from PySide6.QtCore import QPoint
+    tab = PlanTab(_PlanStubState(_stub_plan()), None, toast=lambda m: None)
+    tab.refresh(force=True)
+    shown: list = []
+    monkeypatch.setattr(tab, "_show_row_menu", lambda u, pos: shown.append(u))
+    tab._on_table_context_menu(QPoint(5, 10_000))   # 超出行数
+    assert shown == []
+    tab.deleteLater()
+
+
+def test_stale_banner_shown_and_resolved(qapp):
+    """回归（GUI 反馈：大量影片归于一类实为旧配置时代的计划）：
+    config_hash 不一致 → 计划页顶部挂「请重新扫描」横幅；digest 未变时
+    横幅也必须刷新（改配置不动 plan，早退路径不能吞掉横幅更新）。"""
+    tab = PlanTab(_PlanStubState(_stub_plan("hash-old"), config_hash="hash-new"),
+                  None, toast=lambda m: None)
+    tab.refresh(force=True)
+    assert not tab.stale_hint.isHidden()
+    assert "重新扫描" in tab.stale_hint.text()
+    tab.state.hash = "hash-old"        # 配置回到与计划一致
+    tab.refresh()                      # force=False：digest 相同早退路径
+    assert tab.stale_hint.isHidden()
+    tab.deleteLater()
+
+
+def test_stale_banner_absent_without_hash_or_plan(qapp):
+    tab = PlanTab(_PlanStubState({"units": fake_units(2, seed=1)}), None,
+                  toast=lambda m: None)               # plan 无 config_hash
+    tab.refresh(force=True)
+    assert tab.stale_hint.isHidden()
+    tab.state._plan = None
+    tab.refresh(force=True)
+    assert tab.stale_hint.isHidden()
+    tab.deleteLater()
