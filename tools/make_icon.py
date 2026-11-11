@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """从 A 方案 SVG 母版生成 assets/icon/cinesort.ico。
 
 尺寸分工：256/64 用主版（cinesort-icon-a.svg），32/16 用简化 glyph
