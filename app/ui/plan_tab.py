@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.config import load_config
 from ..core.jobs import BusyError
 from ..core.planner import plan_digest
 from ..state import AppState
@@ -59,6 +60,19 @@ from .viewmodel import (
     level_badge,
     status_badge,
 )
+
+
+def override_libs(rows: list[dict], config_libs: list[str] | None) -> list[str]:
+    """改判候选库：配置全量库 ∪ 计划内命中库（均不含兜底库）。
+
+    历史缺陷：仅取当前可见行 target_lib 去重集合，某库本次扫描零命中
+    （或行被筛选/搜索隐藏）时下拉框无该库，无从改判入内（2026-11-12 反馈）。
+    config_libs 为 None（演示模式/配置不可读）时回退纯计划内集合。
+    """
+    libs = {u["target_lib"] for u in rows} - {"兜底库"}
+    if config_libs:
+        libs |= set(config_libs) - {"兜底库"}
+    return sorted(libs)
 
 
 class PlanTab(QWidget):
@@ -627,8 +641,21 @@ class PlanTab(QWidget):
         w.style().unpolish(w)
         w.style().polish(w)
 
+    def _config_libs(self) -> list[str] | None:
+        """全量配置库名；演示模式或配置不可读时返回 None（回退计划内集合）。
+
+        逐次读盘而非缓存：config.toml 很小、触发频率为人工点击量级，
+        缓存反而需引入 hash 失效逻辑（config_hash 本身也要解析配置）。
+        """
+        if self.state is None:
+            return None
+        try:
+            return list(load_config(self.state.config_path).libraries)
+        except Exception:      # noqa: BLE001  配置缺失/损坏/stub 无 config_path → 优雅降级
+            return None
+
     def _fill_libs(self) -> None:
-        libs = sorted({unit["target_lib"] for unit in self._rows} - {"兜底库"})
+        libs = override_libs(self._rows, self._config_libs())
         if libs != self._libs:
             self._libs = libs
             self.d_override.clear()

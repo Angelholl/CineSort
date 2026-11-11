@@ -11,6 +11,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from conftest import build_env
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
@@ -424,3 +425,69 @@ def test_stale_banner_absent_without_hash_or_plan(qapp):
     tab.refresh(force=True)
     assert tab.stale_hint.isHidden()
     tab.deleteLater()
+
+
+# ---------------- 改判候选=配置全量库（2026-11-12 用户反馈） ----------------
+
+class _LibsStubState:
+    """带 plan/config_hash/config_path 的最小 stub：改判候选回归测试用。"""
+
+    def __init__(self, cfg_path, plan=None):
+        self.config_path = cfg_path
+        self._plan = plan
+
+    def plan(self):
+        return self._plan
+
+    def config_hash(self):
+        return (self._plan or {}).get("config_hash", "hash-new")
+
+
+def _override_items(tab) -> list[str]:
+    return [tab.d_override.itemText(i) for i in range(tab.d_override.count())]
+
+
+def test_override_candidates_cover_all_config_libs(qapp, tmp_path):
+    """回归（2026-11-12 反馈）：改判候选应含配置全量库，而非仅计划内命中过的库。
+
+    旧行为：候选=当前可见行 target_lib 去重集合——某库本次扫描零命中
+    （或行被筛选/搜索隐藏）时下拉框中无该库，无从改判入内。
+    """
+    cfg_path = build_env(tmp_path)              # 科幻/动作 两库 + 兜底
+    units = fake_units(3, seed=5)
+    for u in units:
+        u["target_lib"] = "动作"                 # 计划内只命中 动作
+    state = _LibsStubState(cfg_path, plan={"units": units, "config_hash": "hash-new"})
+    tab = PlanTab(state, None, toast=lambda m: None)
+    try:
+        tab.table.selectRow(0)                   # 走真实路径触发 _fill_libs
+        items = _override_items(tab)
+        assert "科幻" in items and "动作" in items
+        assert items[0] == "（不改判）" and items[-1] == "兜底库"
+    finally:
+        tab.deleteLater()
+
+
+def test_override_candidates_demo_mode_falls_back_to_plan_libs(tab):
+    """演示模式（state=None）保持旧行为：候选=计划内去重集合。"""
+    tab, _ = tab
+    tab.table.selectRow(0)
+    expect = ["（不改判）"] + sorted(
+        {u["target_lib"] for u in tab._rows} - {"兜底库"}) + ["兜底库"]
+    assert _override_items(tab) == expect
+
+
+def test_override_candidates_fallback_when_config_unreadable(qapp, tmp_path):
+    """配置不可读（缺失/损坏）时优雅降级：候选=计划内派生集合。"""
+    units = fake_units(3, seed=5)
+    for u in units:
+        u["target_lib"] = "动作"
+    state = _LibsStubState(tmp_path / "missing.toml",
+                           plan={"units": units, "config_hash": "hash-new"})
+    tab = PlanTab(state, None, toast=lambda m: None)
+    try:
+        tab.table.selectRow(0)
+        items = _override_items(tab)
+        assert "科幻" not in items and "动作" in items
+    finally:
+        tab.deleteLater()
