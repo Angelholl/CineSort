@@ -13,3 +13,6 @@ installer/Output/
 startup-error.log
 *.spec
 !packaging/*.spec
+.zcode/
+.pytest_cache/
+.ruff_cache/

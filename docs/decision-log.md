@@ -151,3 +151,10 @@
 - 工具变更（已执行并验证）：`~/.zcode/tools/exec_wrapper.py` 的 `RATE_LIMIT_SIG` 增 `r"Free usage limit reached"`。依据=卡 C6 实证该文案不匹配任何签名，致 exit 1 且 `rotations=[]`、链内轮转完全未触发。落盘后验证：真实错误文案 `match_any → True`；四条普通输出（截图行 / `219 passed` / `Found 10 errors.` / 裸 `1308` 文本）全部 `False`；`py_compile` 通过；签名数 5→6。假阳性残余与代价写进代码注释（锚定整句、一轮制有界）。按 config-write 纪律执行：TICKS 打点 → 写前 mtime+哈希快照 → 编辑 → 落盘重验 → 一体命令 `BACKUP-BASELINE-REFRESHED`（锚点 lines=91、六文件哈希在场、锁在场）。
 - 暂停派卡的安全性核对：`jobs.py:147` `bad = [u["id"] for u in units if u["status"] != READY]` —— ST_BATCH 单元当前天然进不了执行链，停在 C9 不会造成误移动。
 - 本轮已合入的 9 张卡（C1-C9，测试基线 197 → **259 passed**，全仓 ruff 15 → **10 项**）不被新方案作废：NFO 容错、`javdbid`→provider id、弱标签护栏、标题弱评分、复合单元与 ST_BATCH 门禁均保留，其中复合/ST_BATCH 降级为"真正混合目录"的兜底路径。
+
+## D-20261112-01 项目目录迁移收尾（G/D 盘 → I:\CineSort，仓库卫生）
+- 迁移事实：项目根现位于 `I:\CineSort`（历经 G: → D:\CineSort → I: 两次迁移）；代码层核验无任何硬编码旧盘符路径（`app/` 与 README 干净），无需代码改动。
+- 仓库卫生：`.zcode/`（仅 config.json，autoresearch 插件开关，无敏感信息）、`.pytest_cache/`、`.ruff_cache/` 此前未入忽略清单，长期挂未跟踪 → 补入 `.gitignore`，本项目内按本地工件处理、不入库。
+- 教训复用（承 D-20261101-04 line74）：跨驱器迁移后所有写操作先核对目标根——本轮起执行。
+- 文档残留：decision-log 与历史计划中的 `D:\CineSort-beta\CineSort\config.toml` 实测路径为历史记录，不改写；如需复跑探针，以本机实际路径为准。
+- 迁移范围外：老 Task-12（计划页 chips/批量改判对话框，`docs/plans/2026-11-10-nested-unit-layout.md` 遗留卡）为功能卡，不属迁移收尾，仍挂起待派。
