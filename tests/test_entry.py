@@ -39,3 +39,18 @@ def test_deleted_files_gone():
             "tests/test_api.py", "JellyfinNFOSorter.spec")
     for rel in gone:
         assert (ROOT / rel).exists() is False, f"{rel} 不应存在"
+
+
+def test_first_run_bootstrap_wired_in_main():
+    """首跑不再拷 example：main() 改调 ensure_first_run_config。"""
+    src = (ROOT / "app" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    assert "ensure_first_run_config(cfg_path)" in src
+    assert "from ..core.config import ensure_first_run_config" in src
+    assert "config.example.toml" not in src           # 拷贝 example 的旧路径退场
+
+
+def test_icon_missing_warns_via_logging():
+    """图标缺失从静默降级改为显式日志告警（beta 包缺 _internal/assets 的教训）。"""
+    src = (ROOT / "app" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    assert "logging.basicConfig" in src
+    assert 'log.warning("应用图标缺失' in src

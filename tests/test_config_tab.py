@@ -529,3 +529,34 @@ def test_clean_config_keeps_banner_hidden(qapp):
     tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
     assert tab.cfg_msg.isHidden()
     tab.deleteLater()
+
+
+# ---------------- 配置页全字段 tooltip（卡 card-20261112-firstrun-tooltips-icon） ----------------
+
+def test_config_fields_have_tooltips(qapp):
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    expects = {
+        "f_source_root": "扫描只读",
+        "f_fallback_path": "必须已存在",
+        "f_staging_dir": ".nfo-sorter-staging",
+        "f_strategy": "genre_only",
+        "f_on_conflict": "rename",
+        "f_warn": "直观指标",
+        "f_block": "阻断执行",
+        "f_plot_enabled": "平方根",
+        "f_title_enabled": "最后尝试",
+        "f_title_min_score": "不复用",
+        "f_learning_enabled": "learned.json",
+        "f_priority_text": "吸走",
+        "f_alias_text": "繁简",
+        "f_weak_alias_text": "永不压过",
+    }
+    for attr, needle in expects.items():
+        tip = getattr(tab, attr).toolTip()
+        assert needle in tip, f"{attr} tooltip 缺「{needle}」"
+    headers = [tab.lib_table.horizontalHeaderItem(c).toolTip() for c in range(4)]
+    assert "标准题材名" in headers[0]
+    assert "不得嵌套" in headers[1]
+    assert "+1 分" in headers[2]
+    assert "权重 × 出现次数" in headers[3]
+    tab.deleteLater()

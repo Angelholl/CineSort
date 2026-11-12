@@ -11,6 +11,7 @@ from app.core.config import (
     check_session_root,
     describe,
     dump_config_text,
+    ensure_first_run_config,
     is_sub_path,
     load_config,
     raw_describe,
@@ -292,3 +293,35 @@ def test_example_config_aliases_are_self_consistent():
     assert all(v in names for v in (data.get("genre_aliases") or {}).values())
     assert all(v in names for v in (data.get("weak_genre_aliases") or {}).values())
     assert all(n in names for n in data.get("genre_priority", []))
+
+
+# ---------------- 首跑自洽（卡 card-20261112-firstrun-tooltips-icon） ----------------
+
+def test_first_run_bootstrap_creates_valid_config(tmp_path):
+    cfg_path = tmp_path / "cfg" / "config.toml"
+    assert ensure_first_run_config(cfg_path) is True
+    cfg = load_config(cfg_path)                       # 必须全量校验通过（首跑不炸的硬承诺）
+    assert list(cfg.libraries) == ["电影"]
+    base = cfg_path.parent / "data"
+    assert cfg.source_root == (base / "待整理").resolve()
+    assert cfg.fallback_path == (base / "未分类").resolve()
+    assert (base / "待整理").is_dir() and (base / "电影").is_dir() \
+        and (base / "未分类").is_dir()
+
+
+def test_first_run_bootstrap_is_idempotent(tmp_path):
+    cfg_path = tmp_path / "config.toml"
+    assert ensure_first_run_config(cfg_path) is True
+    text = cfg_path.read_text(encoding="utf-8")
+    assert ensure_first_run_config(cfg_path) is False
+    assert cfg_path.read_text(encoding="utf-8") == text
+
+
+def test_first_run_bootstrap_independent_of_cwd(tmp_path, monkeypatch):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    cfg_path = tmp_path / "cfg" / "config.toml"
+    ensure_first_run_config(cfg_path)
+    cfg = load_config(cfg_path)
+    assert cfg.source_root == (cfg_path.parent / "data" / "待整理").resolve()

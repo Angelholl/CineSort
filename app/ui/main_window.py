@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..core.config import ensure_first_run_config
 from ..state import AppState
 from . import theme
 from .config_tab import ConfigTab
@@ -33,6 +35,7 @@ from .plan_tab import PlanTab
 
 FAST_MS = 300
 SLOW_MS = 2000
+log = logging.getLogger("cinesort")
 
 # 单实例锁句柄：保持持有到进程退出（锁随句柄存活）
 _lock_fh = None
@@ -193,6 +196,8 @@ def main(argv=None) -> int:
     parser.add_argument("--tab", type=int, default=0,
                         help="选中标签页索引（配合 --screenshot 使用）")
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     if args.scale != 1.0:
         import os
@@ -207,18 +212,16 @@ def main(argv=None) -> int:
     icon_path = resource_root() / "assets" / "icon" / "cinesort.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
+    else:
+        log.warning("应用图标缺失：%s（窗口使用系统默认图标，请检查安装完整性）",
+                    icon_path)
 
     if args.demo:  # demo 模式不抢锁
         from .demo_data import fake_units
         state, units, cfg_path = None, fake_units(args.rows), None
     else:
         cfg_path = Path(args.config).resolve() if args.config else default_config_path()
-        if not cfg_path.exists():
-            example = resource_root() / "config.example.toml"
-            if example.exists():
-                cfg_path.parent.mkdir(parents=True, exist_ok=True)
-                cfg_path.write_text(example.read_text(encoding="utf-8"),
-                                    encoding="utf-8")
+        ensure_first_run_config(cfg_path)
         global _lock_fh
         _lock_fh = _acquire_lock(cfg_path.parent / "runtime")
         if _lock_fh is None:

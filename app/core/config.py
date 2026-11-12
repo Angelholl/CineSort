@@ -436,3 +436,42 @@ def save_config_dict(cfg_path: Path, d: dict) -> Config:
     new_cfg.path = cfg_path
     os.replace(candidate, cfg_path)           # 校验通过才替换
     return new_cfg
+
+
+def ensure_first_run_config(cfg_path: Path) -> bool:
+    """cfg_path 不存在时生成最小自洽初始配置并建好所需目录；已存在则不动。
+
+    返回是否新建。目录落点跟 config.toml 走：<cfg 目录>/data/{待整理,电影,未分类}
+    ——便携 exe=exe 旁 data/，安装不可写=%APPDATA%/CineSort/data（default_config_path
+    已保证 cfg 目录可写）。三个目录互为兄弟，过 overlap 校验；TOML 内一律写绝对
+    路径（load_config 对相对路径按进程 CWD resolve，禁止依赖 CWD）。
+    生成内容必须能通过 load_config 全量校验——这是首跑不炸的硬承诺。
+    """
+    cfg_path = Path(cfg_path)
+    if cfg_path.exists():
+        return False
+    base = cfg_path.parent / "data"
+    inbox = base / "待整理"
+    lib = base / "电影"
+    fb = base / "未分类"
+    for p in (inbox, lib, fb):
+        p.mkdir(parents=True, exist_ok=True)
+    body = {
+        "source_root": str(inbox),
+        "fallback_path": str(fb),
+        "strategy": "smart",
+        "on_conflict": "skip",
+        "staging_dir": "",
+        "warn_fallback_ratio": 0.15,
+        "block_fallback_ratio": 0.30,
+        "plot": {"enabled": True, "min_score": 2.0, "normalize": False},
+        "title": {"enabled": True, "min_score": 1.0},
+        "learning": {"enabled": True, "min_votes": 2},
+        "genre_priority": [],
+        "genre_aliases": {},
+        "weak_genre_aliases": {},
+        "libraries": [{"name": "电影", "path": str(lib),
+                       "keywords": [], "keywords_weighted": {}}],
+    }
+    cfg_path.write_text(dump_config_text(body), encoding="utf-8")
+    return True

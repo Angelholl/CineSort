@@ -103,30 +103,63 @@ class ConfigTab(QWidget):
 
         rows = [
             ("源目录", self._path_row(self.f_source_root, "选择源目录",
-                                      "btn_browse_source")),
+                                      "btn_browse_source"),
+             ("待归类影片的源根目录。工具扫描其下的影片文件夹（含两层嵌套），"
+             "扫描只读；点「执行选中」后才会把影片文件夹搬进各媒体库")),
             ("兜底库", self._path_row(self.f_fallback_path, "选择兜底库目录",
-                                      "btn_browse_fallback")),
+                                      "btn_browse_fallback"),
+             ("兜底库目录：题材未映射、摘要/标题预判和自学习都无法判定时的落点。"
+             "目录必须已存在，可与源根同盘")),
             ("暂存目录", self._path_row(self.f_staging_dir,
                                         "选择暂存目录（可留空）",
-                                        "btn_browse_staging")),
-            ("策略", self.f_strategy),
-            ("冲突处理", self.f_on_conflict),
-            ("兜底提醒阈值", self.f_warn),
-            ("兜底阻断阈值", self.f_block),
+                                        "btn_browse_staging"),
+             ("跨盘搬运的暂存目录（可选）。默认自动放在目标库所在盘、库根之外"
+             "（目录名 .nfo-sorter-staging）：先整目录暂存并逐文件校验，再原子改名进库")),
+            ("策略", self.f_strategy,
+             ("smart：多库命中时先用摘要评分择优，评分不足以区分再按优先级表（推荐）；"
+             "priority：严格按优先级表，摘要只用于题材完全未映射时的预判；"
+             "genre_only：只看题材规则，完全不用摘要")),
+            ("冲突处理", self.f_on_conflict,
+             ("目标库已有同名影片文件夹时：skip 跳过并写冲突报告（推荐）；"
+             "rename 加 \" (2)\" 后缀，要求 NFO 带 tmdb/imdb id，否则自动仍按跳过")),
+            ("兜底提醒阈值", self.f_warn,
+             "落入兜底库的影片比例超过此值时提醒——这是规则（别名表+优先级）质量的直观指标"),
+            ("兜底阻断阈值", self.f_block,
+             ("超过此值默认阻断执行，需在确认框中逐项显式越过；"
+             "通常说明别名表覆盖不足或优先级排布不当")),
             ("剧情简介", self._hbox(self.f_plot_enabled,
                                     self.f_plot_min_score,
-                                    self.f_plot_normalize)),
-            ("标题启用", self.f_title_enabled),
-            ("标题阈值", self.f_title_min_score),
+                                    self.f_plot_normalize),
+             ("摘要关键词预判：「启用」为开关（关闭后未映射题材一律进兜底库）；"
+             "「阈值」= Σ(关键词权重×出现次数) 达到才采纳；"
+             "「清洗」= 按摘要长度平方根归一，摘要普遍很长时开启")),
+            ("标题启用", self.f_title_enabled,
+             ("标题弱评分开关（词表=库名+全部别名）：只在题材、摘要、自学习都判不出时"
+             "作最后尝试；命中行置信度恒为低、默认不勾选")),
+            ("标题阈值", self.f_title_min_score,
+             "标题评分采纳阈值（独立于摘要阈值，不复用 plot.min_score）"),
             ("自学习", self._hbox(self.f_learning_enabled,
-                                  self.f_learning_min_votes)),
-            ("库优先级", self.f_priority_text),
-            ("别名表", self.f_alias_text),
-            ("弱别名表", self.f_weak_alias_text),
+                                  self.f_learning_min_votes),
+             ("人工改判记 2 票、人工确认记 1 票，沉淀为「题材→库」映射"
+             "（runtime/learned.json）；票数达「阈值」自动生效；"
+             "自学习永远让位于显式规则，兜底库不参与学习")),
+            ("库优先级", self.f_priority_text,
+             ("题材优先级表：影片命中多个已映射题材时排前面的优先。"
+             "建议「身份类」题材排前、「高频通用」题材排后，否则通用题材会把影片"
+             "成批吸走。留空 = 无显式优先级")),
+            ("别名表", self.f_alias_text,
+             ("每行一条：别名=标准库名。NFO 题材写法→标准库名；匹配不区分大小写、"
+             "全半角与多余空格；不做繁简转换，繁简两种写法各写一条。"
+             "别名覆盖度直接决定规则命中率")),
+            ("弱别名表", self.f_weak_alias_text,
+             ("同别名表但属弱信号：仅当影片没有任何强命中时、唯一命中才采纳，"
+             "且置信度降为低、计划行默认不勾选，永不压过强别名")),
         ]
-        for r, (label, w) in enumerate(rows):
+        for r, (label, w, tip) in enumerate(rows):
             cap = QLabel(label)
             cap.setProperty("dim", True)
+            cap.setToolTip(tip)
+            self._apply_tip(w, tip)
             grid.addWidget(cap, r, 0)
             grid.addWidget(w, r, 1)
         grid.setColumnStretch(1, 1)
@@ -141,6 +174,12 @@ class ConfigTab(QWidget):
         ll.addWidget(QLabel("库"))
         self.lib_table = QTableWidget(0, 4)
         self.lib_table.setHorizontalHeaderLabels(["库名", "目录", "关键词", "加权词"])
+        for col, tip in enumerate((
+                "标准题材名，同时是库优先级表与两张别名表里的参照名；不得含 / 或 \\",
+                "Jellyfin/Emby 媒体库目录，必须已存在；库之间不得嵌套、不得与源目录重叠（保存时自动校验）",
+                "摘要预判关键词，摘要中每命中一次 +1 分；不配置关键词的库不参与摘要预判",
+                "加权关键词，每项 词=权重：分 = 权重 × 出现次数，用于突出强指示词")):
+            self.lib_table.horizontalHeaderItem(col).setToolTip(tip)
         self.lib_table.setEditTriggers(
             QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.lib_table.verticalHeader().setVisible(False)
@@ -254,6 +293,12 @@ class ConfigTab(QWidget):
             h.addWidget(x)
         h.addStretch(1)
         return w
+
+    def _apply_tip(self, w: QWidget, tip: str) -> None:
+        """行 tooltip：容器与其全部子控件同文案（覆盖 _path_row/_hbox 复合行）。"""
+        w.setToolTip(tip)
+        for child in w.findChildren(QWidget):
+            child.setToolTip(tip)
 
     def _path_row(self, edit: QLineEdit, caption: str, attr: str) -> QWidget:
         """路径行：输入框(伸展) + 「浏览…」按钮；按钮以 attr 名存为实例属性。"""
