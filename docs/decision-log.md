@@ -177,3 +177,10 @@
 - CI 待办（后续卡）：`.github/workflows/release.yml:39-43` 云端构建缺 `--icon` 与 `--add-data "assets/icon/cinesort.ico;assets/icon"`——云端产物必缺图标，此为 owner 实机 beta（2026-11-11 安装包）缺图标的真源；补齐前 beta 分发一律以本机重建的 dist 为准。
 - owner 重装提醒：重装后桌面/任务栏若仍显旧图标，跑 `ie4uinit.exe -show` 或重启 explorer 刷图标缓存。
 
+## D-20261112-04 v0.7.0 小版本发版：CI 图标收口 + beta 三问题热修上云（owner 令"github推送，版号为小版本更新"）
+- 版本判定：热修含宽容降级（校验语义变更）、首跑自洽生成器、全字段 tooltip、图标告警——特性级改动，按次版本号 0.6.1→0.7.0；`app/__init__.py` 与 `installer.iss` 兜底默认值同步（iss 实际版本仍由 build 脚本/CI /Dversion 注入）。
+- CI 待办收口（承 D-20261112-03）：`release.yml` PyInstaller 步骤补 `--icon "assets/icon/cinesort.ico"` 与 `--add-data "assets/icon/cinesort.ico;assets/icon"`（与本地 build_exe.ps1 逐字对齐），云端产物自此带设计图标。
+- 发版实证：tag v0.7.0（aee67df）触发 Release 工作流 success（run 43222087781，继 v0.6.0/v0.6.1 后同链第三轮绿）；Release 已发布 [v0.7.0]：`CineSort-setup-0.7.0.exe` 35,321,056 bytes + `SHA256SUMS.txt`（0584832a3032ea4bf5878409ec61ea375f4ced588e41a080ec627e2d3791d28f）。
+- 发版前本地验证：全量 337 passed；两笔提交 7c57667（ci）/ aee67df（release）。
+- owner 安装建议：直接装云端 `CineSort-setup-0.7.0.exe`（内嵌+窗口图标均齐），替代手工拷贝 dist；装后旧图标残留刷缓存同前。
+
