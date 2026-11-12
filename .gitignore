@@ -16,3 +16,4 @@ startup-error.log
 .zcode/
 .pytest_cache/
 .ruff_cache/
+config.toml.bak-*
