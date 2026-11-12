@@ -3,7 +3,7 @@
 ; 版本号由构建脚本经 /Dversion 注入（对齐 SubTrans 的 ISCC /Dversion 模式）
 
 #ifndef version
-  #define version "0.5.1"
+  #define version "0.7.0"
 #endif
 
 [Setup]
