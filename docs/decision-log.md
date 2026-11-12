@@ -161,3 +161,19 @@
 - 迁移深查补录（同日，owner 令"从 D 盘迁移重查"）：全仓盘符清查结论——代码层/启动脚本/installer/CI 干净；残留全在不入库工件与演示数据。处置：①`demo/`（D 盘时代 config.toml + plan.json 6 处 D:\CineSort 路径）删除后经 `tools/make_demo_env.py` 重建，新产物全落 I:；②`build/`（PyInstaller 缓存满篇 D:\CineSort 与 G:\python site-packages）删除，重打包前须在 I: 重建；③`app/ui/demo_data.py` 演示假数据 D:\ 改 I:\（纯 UI 展示字符串，无测试断言盘符）；④`config.toml` 根配置 source_root/媒体库仍指 G:\Media——媒体是否仍在 G 盘属 owner 实机事实，未代改；⑤`dist/` 旧盘构建产物未删（含 config 副本），重发包时删后重建；⑥docs/ 卡面历史探针路径为叙事记录不改写，复跑时换本机路径。
 - 深查验证：全量 323 passed（基线只增不减）；ruff 全仓 All checks passed（优于既有 10 项基线）。
 - 旧盘清理终局（同日三轮，owner 令"旧盘清掉、I: 重建"）：①**实机配置扶正**——`D:\CineSort-beta\CineSort\config.toml`（D-20261109 精调版，56 条 alias，指向 `E:\已刮削\待整理`，E 盘目录实证存在）复制为根 `config.toml`；原根配置系指向已不存在的 `G:\Media\_incoming` 的死模板，备份为 `config.toml.bak-20261112`（.gitignore 补 `config.toml.bak-*`）；②**dist 在 I: 重建**——删旧盘 dist 后 `tools/build_exe.ps1`（须 pwsh 7，脚本 `#requires` 拒 5.1）重建成功，exe 冒烟启动实证（进程在场后 taskkill）；③**D 盘副本清除**——`D:\CineSort`（git 克隆，落后本地 2 提交、工作区干净、无独有内容，config 与 I: 逐字一致）与 `D:\CineSort-beta`（127M，实机配置已抢救后删）双双删除并复核不存在；`G:\zcode` 仅含 zcode-token-bar 与本项目无关，不动。至本地盘符清查闭环：活代码/配置/工件零 D 盘引用。
+
+## D-20261112-02 beta 热修一：悬空库引用宽容降级（owner 拍板"宽容降级"）
+- 根因：`config.example.toml` 自带 `'thriller'='惊悚'`、`'musical'='音乐'` 两对悬空别名（13 库无此二库），首跑原样拷成 config.toml 后 `load_config` 必炸；GUI 兜底把非法别名原样回填表单、报错横幅不指明问题在别名框 → 用户「添加/删除库都保存失败」的体验性死锁。
+- 决策（owner 2026-11-12 会话四项拍板之一）：指向未定义库的 genre_priority / genre_aliases / weak_genre_aliases 条目不再报错，丢弃并收进 `Config.warnings`；重复库名仍报错；含悬空条目的表单保存必成功（写盘透明）；GUI 横幅三分支 error > 橙色警告 > 隐藏；example 同步清理两对悬空别名。
+- 实现：卡 `card-20261112-lenient-aliases`（commit dd49893）；`config_hash` 不含被丢弃条目（计划页不误报漂移）。
+- 测试：323→331（3 例原地改写语义不减量+5 例新增，含 example 自洽 tomllib 裸解析防复发钉）；ruff 0 项；offscreen 冒烟过。
+- 执行注记：opencode free 链两轮全限流（CHAIN_EXHAUSED），按派卡纪律「所有轮转均限流→主审兜底亲执」由主模型亲执；卡面 dangling_hash 例存在设计缺陷（换根目录连路径哈希一起变），验收期就地修正为同根目录重写比对。
+
+## D-20261112-03 beta 热修二：首跑自洽 + 全字段 tooltip + 图标缺失告警 + dist 重建交付
+- 三缺陷：①首跑拷含 G:\ 死路径的 example 必触发「source_root 不存在」；②配置页 14 字段零 tooltip（README 有 100% 文档但 GUI 不展示）；③图标缺失静默降级（beta 实机包缺 `_internal/assets` 无任何提示）。
+- 实现：卡 `card-20261112-firstrun-tooltips-icon`（commit ca2305c）——`ensure_first_run_config()` 生成可通过全量校验的最小配置+自动建 `data/{待整理,电影,未分类}`（跟 config.toml 走）；main() 接入 stdlib logging，图标缺失 `log.warning`；14 字段+库表 4 表头 tooltip 文案自 README 提炼。
+- 测试：331→337（首跑自洽 3/入口接线 2/tooltip 1）；ruff 0 项；offscreen 冒烟过。
+- 部署（主模型亲执）：dist 于 I: 重建；包内 example 无 thriller/musical 残留；内嵌图标抽验目验为设计图标；本机无 ISCC→按分支规则交付 onedir `dist\CineSort\`（exe SHA256 `420CEF5D…A7B9FB`）；dist 真首跑冒烟全过（config 自动生成、三目录就位、配置页零横幅）；dist 旧 G:\ 模板配置备份 `artifacts/dist-config-backup-20261112.toml`，按处置规则留档不恢复（其 source_root 指向不存在目录）。
+- CI 待办（后续卡）：`.github/workflows/release.yml:39-43` 云端构建缺 `--icon` 与 `--add-data "assets/icon/cinesort.ico;assets/icon"`——云端产物必缺图标，此为 owner 实机 beta（2026-11-11 安装包）缺图标的真源；补齐前 beta 分发一律以本机重建的 dist 为准。
+- owner 重装提醒：重装后桌面/任务栏若仍显旧图标，跑 `ie4uinit.exe -show` 或重启 explorer 刷图标缓存。
+
