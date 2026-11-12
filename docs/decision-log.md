@@ -158,3 +158,5 @@
 - 教训复用（承 D-20261101-04 line74）：跨驱器迁移后所有写操作先核对目标根——本轮起执行。
 - 文档残留：decision-log 与历史计划中的 `D:\CineSort-beta\CineSort\config.toml` 实测路径为历史记录，不改写；如需复跑探针，以本机实际路径为准。
 - 迁移范围外：老 Task-12（计划页 chips/批量改判对话框，`docs/plans/2026-11-10-nested-unit-layout.md` 遗留卡）为功能卡，不属迁移收尾，仍挂起待派。
+- 迁移深查补录（同日，owner 令"从 D 盘迁移重查"）：全仓盘符清查结论——代码层/启动脚本/installer/CI 干净；残留全在不入库工件与演示数据。处置：①`demo/`（D 盘时代 config.toml + plan.json 6 处 D:\CineSort 路径）删除后经 `tools/make_demo_env.py` 重建，新产物全落 I:；②`build/`（PyInstaller 缓存满篇 D:\CineSort 与 G:\python site-packages）删除，重打包前须在 I: 重建；③`app/ui/demo_data.py` 演示假数据 D:\ 改 I:\（纯 UI 展示字符串，无测试断言盘符）；④`config.toml` 根配置 source_root/媒体库仍指 G:\Media——媒体是否仍在 G 盘属 owner 实机事实，未代改；⑤`dist/` 旧盘构建产物未删（含 config 副本），重发包时删后重建；⑥docs/ 卡面历史探针路径为叙事记录不改写，复跑时换本机路径。
+- 深查验证：全量 323 passed（基线只增不减）；ruff 全仓 All checks passed（优于既有 10 项基线）。

@@ -52,17 +52,17 @@ def fake_units(n: int, seed: int = 20261102) -> list[dict]:
         level = rnd.choices(_LEVELS, weights=[62, 17, 12, 9])[0]
         status = rnd.choices(_STATUSES, weights=[80, 4, 5, 4, 2, 5])[0]
         if level == "fallback":
-            lib, lib_root = "兜底库", r"D:\媒体库\未分类"
+            lib, lib_root = "兜底库", r"I:\媒体库\未分类"
         else:
             lib = rnd.choice(LIBS)
-            lib_root = rf"D:\媒体库\{lib}"
+            lib_root = rf"I:\媒体库\{lib}"
         genre = lib if lib != "兜底库" else rnd.choice(GENRES)
         conf = {"rule": "high", "learned": "medium",
                 "plot": rnd.choice(["medium", "low"]), "fallback": "low"}[level]
         files = rnd.randint(1, 14)
         # 与 planner 产物同构：部分行带女优段（「库\女优\影片」三层布局）
         actress = rnd.choice(["篠田ゆあ", "伊藤舞雪", "#未知女优", None, None])
-        src = rf"D:\待整理\{actress}\{name}" if actress else rf"D:\待整理\{name}"
+        src = rf"I:\待整理\{actress}\{name}" if actress else rf"I:\待整理\{name}"
         dst_dir = rf"{lib_root}\{actress}\{name}" if actress else rf"{lib_root}\{name}"
         units.append({
             "id": name,
