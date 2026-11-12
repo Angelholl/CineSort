@@ -183,4 +183,5 @@
 - 发版实证：tag v0.7.0（aee67df）触发 Release 工作流 success（run 43222087781，继 v0.6.0/v0.6.1 后同链第三轮绿）；Release 已发布 [v0.7.0]：`CineSort-setup-0.7.0.exe` 35,321,056 bytes + `SHA256SUMS.txt`（0584832a3032ea4bf5878409ec61ea375f4ced588e41a080ec627e2d3791d28f）。
 - 发版前本地验证：全量 337 passed；两笔提交 7c57667（ci）/ aee67df（release）。
 - owner 安装建议：直接装云端 `CineSort-setup-0.7.0.exe`（内嵌+窗口图标均齐），替代手工拷贝 dist；装后旧图标残留刷缓存同前。
+- 版本号调整补录（同日，owner 令"版号调整为 v0.6.X"）：0.7.0 判定被 owner 驳回，改 **0.6.2**（0.6.1→0.6.2 修订号递增）；v0.7.0 Release（id 442947892）经 API 删除（HTTP 204）+ 远端/本地 tag 双删；`app/__init__.py` 与 iss 兜底值改 0.6.2（1f40c1c）；tag v0.6.2 重建云端构建 success（run 43223861645），Release [v0.6.2] 已发布：`CineSort-setup-0.6.2.exe` 35,313,404 bytes，SHA256 `22708ae3…0c130d`。v0.7.0 安装包自发布至删除期间约十余分钟，若已有人下载以 v0.6.2 为准（两者代码内容仅版本号字符串之差）。
 
