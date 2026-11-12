@@ -40,6 +40,8 @@ jobs:
           python -m PyInstaller --noconfirm --clean --onedir --windowed
           --name CineSort
           --add-data "config.example.toml;."
+          --icon "assets/icon/cinesort.ico"
+          --add-data "assets/icon/cinesort.ico;assets/icon"
           run.py
 
       - name: 安装 Inno Setup 6（云端构建机，对齐 SubTrans 的 choco 模式）
