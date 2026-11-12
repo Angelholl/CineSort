@@ -34,7 +34,7 @@ block_fallback_ratio = 0.30
 genre_priority = ['动画', '科幻', '恐怖', '战争', '犯罪', '悬疑', '动作', '奇幻', '冒险', '喜剧', '爱情', '剧情', '纪录片']
 
 # 题材别名：NFO 中的变体写法 → 标准库名（匹配不区分大小写、全半角、多余空格）
-genre_aliases = { 'sci-fi' = '科幻', 'science fiction' = '科幻', 'scifi' = '科幻', 'action & adventure' = '冒险', '動作' = '动作', 'cartoon' = '动画', 'anime' = '动画', 'romance' = '爱情', 'thriller' = '惊悚', 'horror' = '恐怖', 'comedy' = '喜剧', 'drama' = '剧情', 'war' = '战争', 'crime' = '犯罪', 'fantasy' = '奇幻', 'adventure' = '冒险', 'documentary' = '纪录片', 'musical' = '音乐' }
+genre_aliases = { 'sci-fi' = '科幻', 'science fiction' = '科幻', 'scifi' = '科幻', 'action & adventure' = '冒险', '動作' = '动作', 'cartoon' = '动画', 'anime' = '动画', 'romance' = '爱情', 'horror' = '恐怖', 'comedy' = '喜剧', 'drama' = '剧情', 'war' = '战争', 'crime' = '犯罪', 'fantasy' = '奇幻', 'adventure' = '冒险', 'documentary' = '纪录片' }
 
 # 摘要（plot）关键词预判
 [plot]

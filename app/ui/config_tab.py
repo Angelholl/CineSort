@@ -304,10 +304,17 @@ class ConfigTab(QWidget):
         if self.state is None:
             return
         desc, err = self.state.config_describe()
+        warnings = (desc or {}).get("warnings") or []
         if err is not None:
             self.cfg_msg.setText(
                 f"当前配置无效，展示的是兜底值，保存前请先修正：\n{err}")
             self.cfg_msg.setStyleSheet(f"color:{theme.BAD};")
+            self.cfg_msg.show()
+        elif warnings:
+            self.cfg_msg.setText(
+                "配置已加载，但以下无效条目已被忽略"
+                "（保存会原样写盘，建议修正后重新保存）：\n" + "\n".join(warnings))
+            self.cfg_msg.setStyleSheet(f"color:{theme.WARN};")
             self.cfg_msg.show()
         else:
             self.cfg_msg.hide()   # 配置已恢复有效（如外部修正），横幅随之消失

@@ -1,5 +1,8 @@
 """配置校验测试（评议条件 C4）。"""
+from pathlib import Path
+
 import pytest
+import tomllib
 from conftest import build_env
 
 from app.core.config import (
@@ -11,6 +14,7 @@ from app.core.config import (
     is_sub_path,
     load_config,
     raw_describe,
+    save_config_dict,
 )
 
 
@@ -55,14 +59,19 @@ def test_nested_libraries_rejected(tmp_path):
         load_config(build_env(tmp_path, overrides={"libraries": libs}))
 
 
-def test_unknown_priority_rejected(tmp_path):
-    with pytest.raises(ConfigError):
-        load_config(build_env(tmp_path, overrides={"genre_priority": ["不存在"]}))
+def test_unknown_priority_downgraded_to_warning(tmp_path):
+    cfg = load_config(build_env(tmp_path, overrides={
+        "genre_priority": ["不存在", "科幻"]}))
+    assert cfg.genre_priority == ["科幻"]            # 悬空条目被丢弃、合法条目保留
+    assert len(cfg.warnings) == 1
+    assert "genre_priority" in cfg.warnings[0] and "不存在" in cfg.warnings[0]
 
 
-def test_unknown_alias_rejected(tmp_path):
-    with pytest.raises(ConfigError):
-        load_config(build_env(tmp_path, overrides={"genre_aliases": {"x": "不存在"}}))
+def test_unknown_alias_downgraded_to_warning(tmp_path):
+    cfg = load_config(build_env(tmp_path, overrides={
+        "genre_aliases": {"Sci-Fi": "科幻", "x": "不存在"}}))
+    assert cfg.genre_aliases == {"Sci-Fi": "科幻"}
+    assert any("genre_aliases" in w and "不存在" in w for w in cfg.warnings)
 
 
 def test_staging_inside_source_rejected(tmp_path):
@@ -138,11 +147,11 @@ def test_weak_genre_aliases_loaded(tmp_path):
     assert cfg.weak_genre_aliases == {"护士": "动作"}
 
 
-def test_weak_alias_unknown_lib_rejected(tmp_path):
-    with pytest.raises(ConfigError) as excinfo:
-        load_config(build_env(
-            tmp_path, overrides={"weak_genre_aliases": {"护士": "不存在"}}))
-    assert "weak_genre_aliases" in str(excinfo.value)
+def test_weak_alias_unknown_downgraded_to_warning(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path, overrides={"weak_genre_aliases": {"护士": "不存在"}}))
+    assert cfg.weak_genre_aliases == {}
+    assert any("weak_genre_aliases" in w and "不存在" in w for w in cfg.warnings)
 
 
 def test_weak_alias_defaults_empty(tmp_path):
@@ -234,3 +243,52 @@ def test_config_hash_covers_on_conflict_plot_learning(tmp_path):
     assert other1.config_hash() != h0, "on_conflict 影响 build_plan 冲突状态，必须进哈希"
     assert other2.config_hash() != h0, "plot.min_score 影响摘要择优判定，必须进哈希"
     assert other3.config_hash() != h0, "learning.min_votes 影响自学习自动生效，必须进哈希"
+
+
+# ---------------- 悬空引用宽容降级（卡 card-20261112-lenient-aliases） ----------------
+
+def test_dangling_entries_excluded_from_config_hash(tmp_path):
+    """被忽略的悬空条目不得进 config_hash，否则计划页误报配置漂移。
+    （同根目录重写配置再比对：换根目录会连路径哈希一起变，测不到悬空条目。）"""
+    cfg_path = build_env(tmp_path)
+    h1 = load_config(cfg_path).config_hash()
+    build_env(tmp_path, overrides={
+        "genre_aliases": {"Sci-Fi": "科幻", "scifi": "科幻", "僵尸": "不存在"}})
+    h2 = load_config(cfg_path).config_hash()
+    assert h1 == h2
+
+
+def test_describe_includes_warnings(tmp_path):
+    cfg = load_config(build_env(
+        tmp_path, overrides={"genre_aliases": {"x": "不存在"}}))
+    assert describe(cfg)["warnings"] == cfg.warnings
+    assert cfg.warnings                              # 非空
+
+
+def test_describe_warnings_empty_when_clean(tmp_path):
+    assert describe(load_config(build_env(tmp_path)))["warnings"] == []
+
+
+def test_save_config_dict_accepts_dangling_aliases(tmp_path):
+    """含悬空别名的表单保存必须成功：写盘透明 + 返回的 Config 带警告。"""
+    cfg_path = build_env(tmp_path)
+    d = describe(load_config(cfg_path))
+    d["genre_aliases"] = {"幽灵": "不存在"}
+    new_cfg = save_config_dict(cfg_path, d)
+    assert any("幽灵" in w for w in new_cfg.warnings)
+    assert "幽灵" in cfg_path.read_text(encoding="utf-8")     # 原样写盘
+    assert not (tmp_path / "runtime" / "config.candidate.toml").exists()  # 原子替换完成
+
+
+def test_example_config_aliases_are_self_consistent():
+    """example 的别名/优先级必须全部指向 example 自带的库（tomllib 裸解析——
+    example 路径指向不存在的盘符，走完整 load_config 会卡在 _require_dir）。"""
+    root = Path(__file__).resolve().parents[1]
+    with open(root / "config.example.toml", "rb") as fh:
+        data = tomllib.load(fh)
+    names = {lib["name"] for lib in data.get("library", [])}
+    assert "thriller" not in (data.get("genre_aliases") or {})
+    assert "musical" not in (data.get("genre_aliases") or {})
+    assert all(v in names for v in (data.get("genre_aliases") or {}).values())
+    assert all(v in names for v in (data.get("weak_genre_aliases") or {}).values())
+    assert all(n in names for n in data.get("genre_priority", []))

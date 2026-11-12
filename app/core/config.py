@@ -5,7 +5,7 @@
 - 库根两两互异、互不嵌套；库根目录名不得为 .nfo-sorter-staging；
 - source_root 与任何库根/兜底库互不重叠（双向）；
 - staging_dir（若配置）不得位于 source_root 或任何库根内部；
-- genre_priority / genre_aliases 引用的库名必须存在。
+- genre_priority / genre_aliases / weak_genre_aliases 指向未定义库的条目一律降级为 warnings（宽容降级），不再抛错；重复库名仍报错。
 """
 from __future__ import annotations
 
@@ -92,6 +92,7 @@ class Config:
     warn_fallback_ratio: float = 0.15
     block_fallback_ratio: float = 0.30
     weak_genre_aliases: dict[str, str] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)  # 宽容降级：被忽略的悬空条目清单
 
     @property
     def runtime_dir(self) -> Path:
@@ -201,12 +202,14 @@ def load_config(path: Path | str) -> Config:
     if not libraries:
         raise ConfigError("至少需要定义一个 [[library]]")
 
+    warnings: list[str] = []
     genre_priority_raw = list(data.get("genre_priority", []))
     genre_priority: list[str] = []
     for name in genre_priority_raw:
         name = str(name).strip()
         if name not in libraries:
-            raise ConfigError(f"genre_priority 引用了未定义的库：{name}")
+            warnings.append(f"genre_priority 引用了未定义的库：{name}，已忽略")
+            continue
         if name in genre_priority:
             raise ConfigError(f"genre_priority 中库名重复：{name}")
         genre_priority.append(name)
@@ -215,14 +218,16 @@ def load_config(path: Path | str) -> Config:
     for k, v in (data.get("genre_aliases") or {}).items():
         v = str(v).strip()
         if v not in libraries:
-            raise ConfigError(f"genre_aliases[{k!r}] 指向未定义的库：{v}")
+            warnings.append(f"genre_aliases[{k!r}] 指向未定义的库：{v}，已忽略")
+            continue
         genre_aliases[str(k)] = v
 
     weak_genre_aliases: dict[str, str] = {}
     for k, v in (data.get("weak_genre_aliases") or {}).items():
         v = str(v).strip()
         if v not in libraries:
-            raise ConfigError(f"weak_genre_aliases[{k!r}] 指向未定义的库：{v}")
+            warnings.append(f"weak_genre_aliases[{k!r}] 指向未定义的库：{v}，已忽略")
+            continue
         weak_genre_aliases[str(k)] = v
 
     plot_data = data.get("plot") or {}
@@ -298,6 +303,7 @@ def load_config(path: Path | str) -> Config:
         staging_dir=staging_dir,
         warn_fallback_ratio=warn_ratio,
         block_fallback_ratio=block_ratio,
+        warnings=warnings,
     )
 
 
@@ -328,6 +334,7 @@ def describe(cfg: Config) -> dict:
         "genre_priority": list(cfg.genre_priority),
         "genre_aliases": dict(cfg.genre_aliases),
         "weak_genre_aliases": dict(cfg.weak_genre_aliases),
+        "warnings": list(cfg.warnings),
         "libraries": [lib.describe() for lib in cfg.libraries.values()],
     }
 

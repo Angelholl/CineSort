@@ -15,6 +15,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from app.core.config import ConfigError
+from app.ui import theme
 from app.ui.config_tab import ConfigTab
 from app.ui.config_viewmodel import (
     describe_to_form,
@@ -499,4 +500,32 @@ def test_learned_render_still_updates_on_change(qapp):
     tab._on_forget("k1", "电影")
     assert tab.learned_table.rowCount() == 0          # 空态立即渲染
     assert not tab.learned_hint.isHidden()
+    tab.deleteLater()
+
+
+# ---------------- 宽容降级警告横幅（卡 card-20261112-lenient-aliases） ----------------
+
+def test_warnings_banner_lists_ignored_entries(qapp):
+    desc = full_describe()
+    desc["warnings"] = ["genre_aliases['x'] 指向未定义的库：不存在，已忽略"]
+    tab = ConfigTab(StubState(desc), toast=lambda m: None)
+    assert not tab.cfg_msg.isHidden()
+    assert "已忽略" in tab.cfg_msg.text()
+    assert theme.WARN in tab.cfg_msg.styleSheet()
+    tab.deleteLater()
+
+
+def test_error_banner_wins_over_warnings(qapp):
+    desc = full_describe()
+    desc["warnings"] = ["genre_aliases['x'] 指向未定义的库：不存在，已忽略"]
+    tab = ConfigTab(StubState(desc, err="第 3 行：库目录不存在"), toast=lambda m: None)
+    assert "当前配置无效" in tab.cfg_msg.text()
+    assert theme.BAD in tab.cfg_msg.styleSheet()
+    assert theme.WARN not in tab.cfg_msg.styleSheet()
+    tab.deleteLater()
+
+
+def test_clean_config_keeps_banner_hidden(qapp):
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    assert tab.cfg_msg.isHidden()
     tab.deleteLater()
