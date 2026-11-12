@@ -459,3 +459,13 @@ def test_blocked_toast_mixed_and_fold():
     assert "可改判的请在详情面板指定目标库" in msg and "取消勾选" in msg
     hard = vm.blocked_toast([u3])
     assert hard == "不可执行：《C 片》同名冲突——请先处理或取消勾选"
+
+
+def test_unlock_statuses_single_point():
+    """架构钉：改判解锁白名单收敛于 planner.UNLOCKABLE_STATUSES（v0.6.1 评审记账项）。"""
+    import app.core.jobs as jobs_mod
+
+    for src in (Path(jobs_mod.__file__).read_text(encoding="utf-8"),
+                Path(vm.__file__).read_text(encoding="utf-8")):
+        assert "in (ST_BATCH, ST_MULTI)" not in src      # 散点裸元组清零
+        assert "UNLOCKABLE_STATUSES" in src

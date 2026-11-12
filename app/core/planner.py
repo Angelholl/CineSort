@@ -28,6 +28,9 @@ ST_MULTI = "multi_version"
 ST_APPLIED = "applied"
 ST_BATCH = "batch_target"
 
+# 人工改判可解锁状态：整目录待改判 / 多版本需确认（执行门+体检+快照白名单共享）
+UNLOCKABLE_STATUSES = (ST_BATCH, ST_MULTI)
+
 MARKER_PREFIX = ".incomplete-"
 
 STATUS_LABELS = {
@@ -238,7 +241,7 @@ def check_plan_freshness(cfg: Config, plan: dict,
     for pu in plan["units"]:
         if only_ids is not None and pu["id"] not in only_ids:
             continue
-        if pu["status"] not in (READY, ST_BATCH, ST_MULTI):
+        if pu["status"] not in (READY, *UNLOCKABLE_STATUSES):
             continue
         src = Path(pu["src"])
         if not src.exists():

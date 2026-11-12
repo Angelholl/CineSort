@@ -15,9 +15,8 @@ from pathlib import Path
 
 from app.core.planner import (
     READY,
-    ST_BATCH,
-    ST_MULTI,
     STATUS_LABELS,
+    UNLOCKABLE_STATUSES,
     session_dst_root,
     unit_dst_dir,
 )
@@ -113,8 +112,8 @@ def blocked_toast(units: list[dict], max_show: int = 2) -> str:
     if len(units) > max_show:
         names += f" 等 {len(units)} 部"
     head = f"有 {len(units)} 部不可执行：" if len(units) > 1 else "不可执行："
-    unlockable = any(u["status"] in (ST_BATCH, ST_MULTI) for u in units)
-    hard = any(u["status"] not in (ST_BATCH, ST_MULTI) for u in units)
+    unlockable = any(u["status"] in UNLOCKABLE_STATUSES for u in units)
+    hard = any(u["status"] not in UNLOCKABLE_STATUSES for u in units)
     if unlockable and hard:
         tail = "——可改判的请在详情面板指定目标库，其余请处理或取消勾选"
     elif unlockable:
@@ -228,7 +227,7 @@ class PlanViewModel:
         （多版本需确认）须人工改判指定目标库后解锁。"""
         if u["status"] == READY:
             return True
-        return (u["status"] in (ST_BATCH, ST_MULTI)
+        return (u["status"] in UNLOCKABLE_STATUSES
                 and bool(self.overrides.get(u["id"])))
 
     def checked_not_ready(self) -> list[dict]:
