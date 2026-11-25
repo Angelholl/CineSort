@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.alias_scan import filter_covered, scan_alias_candidates
-from ..core.config import ConfigError, load_config
+from ..core.config import STRATEGIES, ConfigError, load_config
 from ..core.nfo import normalize_key
 from ..state import AppState
 from . import theme
@@ -81,7 +81,7 @@ class ConfigTab(QWidget):
         self.f_fallback_path = QLineEdit()
         self.f_staging_dir = QLineEdit()
         self.f_strategy = QComboBox()
-        self.f_strategy.addItems(["smart", "smart_weighted", "priority", "genre_only"])
+        self.f_strategy.addItems(list(STRATEGIES))
         self.f_on_conflict = QComboBox()
         self.f_on_conflict.addItems(["skip", "rename"])
 
