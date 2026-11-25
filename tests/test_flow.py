@@ -17,7 +17,7 @@ from conftest import build_env, make_movie
 from app.core import jobs as jobs_mod
 from app.core import preflight, scanner
 from app.core.config import load_config
-from app.core.journal import list_sessions
+from app.core.journal import done_entries, list_sessions
 from app.core.planner import build_plan, check_plan_freshness
 from app.state import AppState
 
@@ -571,3 +571,37 @@ def test_preflight_and_freshness_cover_multi_version(tmp_path, monkeypatch):
     shutil.rmtree(cfg.source_root / ids[0])
     problems = check_plan_freshness(cfg, plan)
     assert any("源已不存在" in p for p in problems)
+
+
+def test_apply_journal_trace_flow(env_state):
+    """全链路 apply 后 done 首条须含五字段；原回滚链路不回归。"""
+    state, _env = env_state
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+
+    ids = [u["id"] for u in state.plan()["units"]]
+    state.start_apply(ids, {"jellyfin_running", "fallback_ratio"}, {})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+
+    log_path = (state.runtime_dir() / "journals"
+                / f"apply-{st['result']['session']}.jsonl")
+    dones = done_entries(log_path)
+    assert len(dones) == 2
+    first = dones[0]
+    assert {"provider", "manual", "orig_lib", "title", "year"} <= first.keys()
+    for d in dones:
+        assert d["manual"] is False
+        assert d["orig_lib"] == d["target_lib"]
+        assert d["provider"].startswith("tmdb:")
+        assert d["title"] and d["year"]
+
+    # 回滚链路不回归：仍可预览并按 done 记录还原
+    sess = list_sessions(state.runtime_dir() / "journals")[0]["file"]
+    prev = state.undo_preview(sess)
+    assert len(prev["ops"]) == 2 and all(o["state"] == "ok" for o in prev["ops"])
+    state.start_undo(sess)
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert st["result"]["restored"] == 2

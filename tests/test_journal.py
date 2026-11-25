@@ -1,6 +1,9 @@
 """事务日志测试（评议条件 C6：fsync 落盘 / 容忍末尾半行 / 会话隔离）。"""
 import time
 
+from conftest import build_env, make_movie
+
+from app.core.config import load_config
 from app.core.journal import (
     Journal,
     done_entries,
@@ -9,6 +12,7 @@ from app.core.journal import (
     read_entries,
     session_summary,
 )
+from app.state import AppState
 
 
 def test_roundtrip_and_summary(tmp_path):
@@ -71,3 +75,79 @@ def test_list_sessions_sorted_by_time_across_kinds(tmp_path):
     a.close()
     names = [s["file"] for s in list_sessions(tmp_path)]
     assert names[0] == a.path.name and names[1] == u.path.name
+
+
+def _wait_job(state, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = state.jobs.job
+        if job and job.status != "running":
+            return job.snapshot()
+        time.sleep(0.05)
+    raise AssertionError("任务超时未结束")
+
+
+def _apply_one(tmp_path, *, title, year, genres, tmdb, override=None):
+    """扫描单个单元后执行，返回 (state, unit, apply 日志路径)。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root, f"{title} ({year})", title=title, genres=genres,
+               plot="太空宇宙飞船大战", tmdb=tmdb)
+    state = AppState(cfg_path)
+    state.start_scan()
+    st = _wait_job(state)
+    assert st["status"] == "done", st["log"]
+    unit = next(u for u in state.plan()["units"] if u["title"] == title)
+    overrides = {unit["id"]: override} if override else {}
+    state.start_apply([unit["id"]], {"jellyfin_running", "fallback_ratio"}, overrides)
+    st = _wait_job(state)
+    assert st["status"] == "done", st["log"]
+    log_path = (state.runtime_dir() / "journals"
+                / f"apply-{st['result']['session']}.jsonl")
+    return state, unit, log_path
+
+
+def test_done_entry_carries_override_trace(tmp_path):
+    """人工改判「科幻」→「动作」：done 须留痕原库、人工标记、来源与片名年份。"""
+    _state, unit, log_path = _apply_one(
+        tmp_path, title="Space War", year=2021, genres=("科幻",), tmdb="21",
+        override="动作")
+    d = done_entries(log_path)[0]
+    assert d["manual"] is True
+    assert d["orig_lib"] == "科幻"
+    assert d["target_lib"] == "动作"
+    assert d["provider"] == "tmdb:21"
+    assert d["title"] == unit["title"]
+    assert d["year"] == unit["year"]
+
+
+def test_done_entry_confirm_trace(tmp_path):
+    """无人工改判的确认执行：manual False，orig_lib 与 target_lib 一致。"""
+    _state, _unit, log_path = _apply_one(
+        tmp_path, title="Gun Fight", year=2022, genres=("动作",), tmdb="22")
+    d = done_entries(log_path)[0]
+    assert d["manual"] is False
+    assert d["orig_lib"] == d["target_lib"] == "动作"
+
+
+def test_old_journal_still_readable(tmp_path):
+    """留痕上线前的旧格式 jsonl（无五字段）仍可读，且能与新留痕记录共存。"""
+    journals = tmp_path / "runtime" / "journals"
+    journals.mkdir(parents=True, exist_ok=True)
+    old = journals / "apply-20261125T000000-0001.jsonl"
+    old.write_text(
+        '{"type":"header","kind":"apply","sid":"s","ts":"2026-01-01T00:00:00+08:00","meta":{}}\n'
+        '{"type":"done","ts":"2026-01-01T00:00:01+08:00","unit_id":"OLD",'
+        '"src_dir":"x","dst_dir":"y","kind":"dir","target_lib":"科幻"}\n',
+        encoding="utf-8")
+    assert [e["type"] for e in read_entries(old)] == ["header", "done"]
+    assert done_entries(old)[0]["unit_id"] == "OLD"
+    assert any(s["file"] == old.name for s in list_sessions(journals))
+
+    _state, _unit, log_path = _apply_one(
+        tmp_path, title="Gun Fight", year=2022, genres=("动作",), tmdb="22")
+    names = {s["file"] for s in list_sessions(journals)}
+    assert old.name in names and log_path.name in names
+    assert "manual" not in done_entries(old)[0]      # 旧记录不被回填
+    new_done = done_entries(log_path)[0]              # 新记录带五字段
+    assert new_done["manual"] is False and new_done["orig_lib"] == new_done["target_lib"]

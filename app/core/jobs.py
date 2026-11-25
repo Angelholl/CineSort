@@ -156,6 +156,9 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     if not units:
         raise RuntimeError("未选择任何影片")
 
+    # 人工改判前先截取原判定库：下方循环会 in-place 改写 target_lib
+    orig_lib = {u["id"]: u["target_lib"] for u in units}
+
     # 逐行覆盖目标库（内存改写，不写 plan.json）
     for u in units:
         ov = overrides.get(u["id"])
@@ -241,7 +244,10 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
                     info = fsops.transfer_loose(files_abs, dst, staging, expected)
                 jr.done(unit_id=u["id"], src_dir=_src_dir(u), dst_dir=str(dst),
                         kind=u["kind"], mode=info.get("mode"), files=expected,
-                        bytes=u["total_size"], target_lib=u["target_lib"])
+                        bytes=u["total_size"], target_lib=u["target_lib"],
+                        provider=u.get("provider"), manual=u["id"] in overrides,
+                        orig_lib=orig_lib[u["id"]], title=u.get("title"),
+                        year=u.get("year"))
                 moved += 1
                 done_ids.append(u["id"])
                 job.cur = moved + failed

@@ -48,6 +48,12 @@ class Journal:
         self._write({"type": "intent", "ts": _now_iso(), **kw})
 
     def done(self, **kw) -> None:
+        """追加一条 done 留痕（kw 透传，签名不变）。
+
+        Task-04 五字段语义：provider=数据源标识（如 tmdb:21）；manual=本条
+        是否经人工改判目标库；orig_lib=改判前的原判定库；title/year=单元
+        片名与年份。旧格式记录不含这些字段，天然按「留痕上线前」判别跳过。
+        """
         self._write({"type": "done", "ts": _now_iso(), **kw})
 
     def aborted(self, **kw) -> None:
