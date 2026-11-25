@@ -131,3 +131,22 @@ def test_config_tab_alias_scan_button_exists_and_demo_disabled(qapp):
     tab_demo = ConfigTab(None, toast=lambda m: None)
     assert tab_demo.btn_alias_scan.isEnabled() is False
     tab_demo.deleteLater()
+
+
+def test_effective_alias_keys_config_and_pending_lines(qapp, tmp_path):
+    """已覆盖键 = 已落盘配置别名 ∪ 两编辑框待保存行（normalize 归一）。"""
+    from conftest import build_env
+
+    from app.core.config import load_config
+    cfg_path = build_env(tmp_path, overrides={
+        "genre_aliases": {"sci-fi": "科幻"}, "genre_priority": []})
+    cfg = load_config(cfg_path)
+    tab = ConfigTab(_StubState(_full_describe()), toast=lambda m: None)
+    keys = tab._effective_alias_keys(cfg)
+    assert "sci-fi" in keys                                 # 已落盘强别名
+    tab.f_weak_alias_text.setPlainText("护士=剧集")
+    tab.f_alias_text.setPlainText("西部=电影")
+    keys = tab._effective_alias_keys(cfg)
+    assert "西部" in keys and "护士" in keys                # 编辑框待保存行
+    assert "" not in keys                                   # 空键剔除
+    tab.deleteLater()

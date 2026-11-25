@@ -2,7 +2,7 @@
 
 from conftest import build_env, make_movie
 
-from app.core.alias_scan import name_tokens, scan_alias_candidates
+from app.core.alias_scan import filter_covered, name_tokens, scan_alias_candidates
 from app.core.config import load_config
 
 
@@ -77,3 +77,16 @@ def test_scan_candidates_desc_order_and_no_nfo_unit(tmp_path):
     assert token_map["重复词甲"] == 2                      # casefold 归组计频
     top = res["tokens"][0]
     assert top[1] == 2                                    # 按次数降序
+
+
+# ---------------- 已覆盖候选过滤（owner 2026-11-25：加入别名表后不再扫出） ----------------
+
+def test_filter_covered_removes_aliased_genres():
+    candidates = {"unit_count": 2,
+                  "genres": [("西部", 2), ("Western", 1), ("田园", 1)],
+                  "tokens": [("重复词", 3)]}
+    # normalize 归一比对：大小写/全半角差异也算已覆盖
+    out = filter_covered(candidates, {"western", "田园"})
+    assert [g for g, _ in out["genres"]] == ["西部"]
+    assert out["tokens"] == candidates["tokens"]          # 词榜不受影响
+    assert out["unit_count"] == 2                          # 其余字段原样保留

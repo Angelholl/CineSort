@@ -37,8 +37,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.alias_scan import scan_alias_candidates
+from ..core.alias_scan import filter_covered, scan_alias_candidates
 from ..core.config import ConfigError, load_config
+from ..core.nfo import normalize_key
 from ..state import AppState
 from . import theme
 from .alias_scan_dialog import AliasScanDialog
@@ -479,6 +480,8 @@ class ConfigTab(QWidget):
         finally:
             if QApplication.overrideCursor():
                 QApplication.restoreOverrideCursor()
+        # 已覆盖候选不再列出（owner 2026-11-25）：已落盘别名 ∪ 编辑框待保存行
+        candidates = filter_covered(candidates, self._effective_alias_keys(cfg))
         names = []
         for r in range(self.lib_table.rowCount()):
             it = self.lib_table.item(r, 0)
@@ -487,6 +490,17 @@ class ConfigTab(QWidget):
 
         AliasScanDialog(candidates, names, self._append_alias_candidates,
                         self).exec()
+
+    def _effective_alias_keys(self, cfg) -> set[str]:
+        """已生效别名键（normalize_key 形态）：已落盘配置 ∪ 两编辑框待保存行。"""
+        keys = {normalize_key(k) for k in cfg.genre_aliases}
+        keys |= {normalize_key(k) for k in cfg.weak_genre_aliases}
+        for box in (self.f_alias_text, self.f_weak_alias_text):
+            for line in box.toPlainText().splitlines():
+                if "=" in line:
+                    keys.add(normalize_key(line.split("=", 1)[0]))
+        keys.discard("")
+        return keys
 
     def _append_alias_candidates(self, kind: str, lines: list[str]) -> None:
         """对话框回调：候选行追加进别名/弱别名编辑框（去重，只改文本不落盘）。"""

@@ -91,3 +91,16 @@ def scan_alias_candidates(cfg: Config) -> dict:
         "genres": _sorted(genre_groups),
         "tokens": _sorted(token_groups),
     }
+
+
+def filter_covered(candidates: dict, covered_keys: set[str]) -> dict:
+    """题材榜中已覆盖的候选不再列出（owner 2026-11-25：加入别名表后应扫不出）。
+
+    covered_keys 为已生效别名键（normalize_key 形态，含已落盘配置与编辑框
+    待保存行）；按 normalize_key 归一比对，其余字段原样保留。"""
+    if not covered_keys:
+        return candidates
+    out = dict(candidates)
+    out["genres"] = [(g, n) for g, n in candidates.get("genres") or []
+                     if normalize_key(g) not in covered_keys]
+    return out
