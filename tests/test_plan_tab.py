@@ -563,6 +563,8 @@ def test_batch_target_badge_mapped(qapp):
     assert table_cells.STATUS_BADGES["batch_target"] == "batch"
     # 徽章键配色已登记（复用警示橙，不新增色值）
     assert theme.BADGE_COLORS["batch"] == theme.WARN
+    # 渲染链真实路径：status_badge 直出原始状态码，batch_target 键也须配色
+    assert theme.BADGE_COLORS["batch_target"] == theme.WARN
     # 文案沿用 planner.STATUS_LABELS：最小 unit 构造一条 batch_target 行
     assert planner.STATUS_LABELS[planner.ST_BATCH] == "整目录待改判"
     unit = fake_units(1, seed=3)[0]

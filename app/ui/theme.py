@@ -42,6 +42,9 @@ BADGE_COLORS = {
     "multi_version": ACC, "applied": ACC, "info": ACC,
     "dim": DIM,
     "batch": WARN,
+    # status_badge 直出原始状态码作徽章键（viewmodel.status_badge），
+    # batch_target 也须登记，否则落 DIM 兜底灰（卡 T12a 验收期主审修正）
+    "batch_target": WARN,
 }
 
 
