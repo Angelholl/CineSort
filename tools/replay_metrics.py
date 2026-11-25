@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # _rank 私有导入：与 classifier.rule_pick 完全同口径地复算无票/带票胜者。
 from app.core.classifier import _rank, map_genres_ex
-from app.core.config import Config, load_config
+from app.core.config import Config, ConfigError, load_config
 from app.core.journal import list_sessions, read_entries
 from app.core.learned import load as load_learned
 from app.core.learned import votes_for
@@ -172,7 +172,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="机器可读 JSON 输出")
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as exc:
+        print(f"配置错误：{exc}", file=sys.stderr)
+        return 2
     plan = build_replay_plan(cfg, args.strategy)
     result = replay_metrics(cfg, plan)
     if args.json:
