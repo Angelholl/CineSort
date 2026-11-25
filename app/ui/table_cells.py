@@ -23,6 +23,7 @@ STATUS_BADGES = {
     "incomplete_leftover": "incomplete_leftover",
     "multi_version": "multi_version",
     "applied": "applied",
+    "batch_target": "batch",
 }
 _CONF_TONES = {"ok": theme.OK, "plot": theme.PLOT, "fb": theme.FB}
 

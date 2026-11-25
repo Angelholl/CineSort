@@ -552,3 +552,25 @@ def test_blocked_toast_names_unit_and_reason(qapp):
         assert "冲突/残留" not in toasts[0]
     finally:
         tab.deleteLater()
+
+
+def test_batch_target_badge_mapped(qapp):
+    """回归（卡 T12a）：整目录待改判行有徽章且配色已登记。"""
+    from app.core import planner
+    from app.ui import table_cells, theme
+
+    # 状态码 → 徽章键映射补齐
+    assert table_cells.STATUS_BADGES["batch_target"] == "batch"
+    # 徽章键配色已登记（复用警示橙，不新增色值）
+    assert theme.BADGE_COLORS["batch"] == theme.WARN
+    # 文案沿用 planner.STATUS_LABELS：最小 unit 构造一条 batch_target 行
+    assert planner.STATUS_LABELS[planner.ST_BATCH] == "整目录待改判"
+    unit = fake_units(1, seed=3)[0]
+    unit["status"] = "batch_target"
+    tab = PlanTab(None, [unit], toast=lambda m: None)
+    try:
+        item = tab.table.item(0, table_cells.COL_STATUS)
+        assert item is not None
+        assert item.text() == "整目录待改判"
+    finally:
+        tab.deleteLater()

@@ -41,6 +41,7 @@ BADGE_COLORS = {
     "incomplete_leftover": BAD, "failed": BAD, "block": BAD,
     "multi_version": ACC, "applied": ACC, "info": ACC,
     "dim": DIM,
+    "batch": WARN,
 }
 
 
