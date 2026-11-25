@@ -288,3 +288,15 @@ def test_learned_lib_removed_from_config_is_ignored(tmp_path):
     d2 = classify(unit(("悬疑",)), cfg, learned_store.load(cfg.runtime_dir))
     assert d2.level == "fallback" and d2.target == "兜底库"
     assert not any("自学习" in e for e in d2.evidence)   # 失效库不得作低置信建议
+
+
+def test_rule_evidence_no_votes_lines(tmp_path):
+    """A-2：多候选 + 票数在场时，规则级证据不得含票数/历史倾向行。"""
+    cfg = make_cfg()
+    learned = {"entries": {
+        "科幻": {"display": "科幻",
+                 "libs": {"动作": {"votes": 4, "manual": 2, "last": ""}}},
+    }}
+    d = classify(unit(["科幻", "动作"]), cfg, learned)
+    assert d.level == "rule"
+    assert not any("历史倾向" in e or "票" in e for e in d.evidence)

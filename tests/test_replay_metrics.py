@@ -41,22 +41,25 @@ def test_replay_writes_nothing(tmp_path):
     assert snap() == before
 
 
-def test_replay_auto_effective_matches_plan(tmp_path):
+def test_replay_auto_effective_zero_after_a2(tmp_path):
+    """A-2：票数不再触发自动生效，自学习单元默认不勾选。"""
     mod = _replay_module()
     cfg_path = build_env(tmp_path)
     make_movie(tmp_path / "src", "opera", genres=("戏曲",))
     cfg = load_config(cfg_path)
-    # 人工票一次记 2 票，min_votes=2 → 自学习级自动生效且默认勾选。
-    learned_record(cfg.runtime_dir, ["戏曲"], "科幻", manual=True)
+    for _ in range(2):
+        learned_record(cfg.runtime_dir, ["戏曲"], "科幻", manual=True)  # 2 票
 
     result = mod.replay_metrics(cfg)
     plan = mod.build_replay_plan(cfg)
-    learned_defaults = sum(1 for u in plan["units"]
-                           if u["level"] == "learned" and u["default_selected"])
-    assert result["auto_effective_units"] == 1 == learned_defaults
+    learned_units = [u for u in plan["units"] if u["level"] == "learned"]
+    assert len(learned_units) == 1
+    assert all(not u["default_selected"] for u in learned_units)
+    assert result["auto_effective_units"] == 0
 
 
-def test_replay_winner_basis_detects_votes(tmp_path):
+def test_replay_winner_basis_no_votes_after_a2(tmp_path):
+    """A-2：票数退出择优后，重放量尺不再出现 votes 胜出依据。"""
     mod = _replay_module()
     cfg_path = build_env(tmp_path, overrides={
         "genre_priority": [],
@@ -68,7 +71,8 @@ def test_replay_winner_basis_detects_votes(tmp_path):
         learned_record(cfg.runtime_dir, ["喜剧"], "动作", manual=False)
 
     result = mod.replay_metrics(cfg)
-    assert result["winner_basis"]["votes"] >= 1
+    assert result["winner_basis"]["votes"] == 0
+    assert result["winner_basis"]["decl_order"] >= 1
 
 
 def test_replay_default_selected_count(tmp_path):

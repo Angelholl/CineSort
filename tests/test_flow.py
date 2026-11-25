@@ -86,6 +86,32 @@ def test_scan_apply_undo_flow(env_state):
     assert not (env.libraries["科幻"].path / "Space War (2021)").exists()
 
 
+def test_apply_manual_override_records_no_votes(tmp_path):
+    """A-2 窗口期：人工改判单元不记票；无改判的确认单元仍记 1 票。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    src = cfg.source_root
+    make_movie(src, "Opera (2021)", title="Opera", genres=("戏曲",),
+               plot="剧情简介", tmdb="31")
+    make_movie(src, "Gun Fight (2022)", title="Gun Fight", genres=("动作",),
+               plot="特工枪战", tmdb="22")
+    state = AppState(cfg_path)
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    state.start_apply(["Opera (2021)", "Gun Fight (2022)"],
+                      {"jellyfin_running", "fallback_ratio"},
+                      {"Opera (2021)": "科幻"})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+
+    lp = cfg.path.parent / "runtime" / "learned.json"
+    learned = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {}
+    entries = learned.get("entries", {})
+    assert "戏曲" not in entries                           # 人工改判不沉淀
+    assert entries["动作"]["libs"]["动作"]["votes"] == 1   # 确认单元 1 票
+
+
 def test_apply_blocked_on_source_drift(env_state):
     state, env = env_state
     state.start_scan()

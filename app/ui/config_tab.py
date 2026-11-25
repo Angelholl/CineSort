@@ -149,8 +149,8 @@ class ConfigTab(QWidget):
              "标题评分采纳阈值（独立于摘要阈值，不复用 plot.min_score）"),
             ("自学习", self._hbox(self.f_learning_enabled,
                                   self.f_learning_min_votes),
-             ("人工改判记 2 票、人工确认记 1 票，沉淀为「题材→库」映射"
-             "（runtime/learned.json）；票数达「阈值」自动生效；"
+             ("人工改判与确认结果一律 +1 票，仅作建议（不自动生效、不默认勾选），沉淀为"
+             "「题材→库」映射（runtime/learned.json）；票数不参与多候选择优；"
              "自学习永远让位于显式规则，兜底库不参与学习")),
             ("库优先级", self.f_priority_text,
              ("题材优先级表：影片命中多个已映射题材时排前面的优先。"
@@ -233,7 +233,7 @@ class ConfigTab(QWidget):
         sl = QVBoxLayout(sc)
         sl.setContentsMargins(14, 12, 14, 12)
         sl.setSpacing(8)
-        sl.addWidget(QLabel("自学习映射（达阈值自动生效）"))
+        sl.addWidget(QLabel("自学习映射（仅作建议）"))
         self.learned_hint = QLabel("")
         self.learned_hint.setProperty("dim", True)
         self.learned_hint.setAlignment(Qt.AlignCenter)

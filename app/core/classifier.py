@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .config import Config
-from .learned import best_for, votes_for
+from .learned import best_for
 from .nfo import normalize_key
 
 LEVEL_RULE = "rule"
@@ -148,7 +148,7 @@ def score_title(text: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
 
 
 def _rank(cfg: Config, lib_name: str) -> tuple[int, int]:
-    """优先级排序键：表内位置优先；未列入的库同档（交由历史倾向/声明顺序裁决）。"""
+    """优先级排序键：表内位置优先；未列入的库同档（交由声明顺序裁决）。"""
     if lib_name in cfg.genre_priority:
         return (0, cfg.genre_priority.index(lib_name))
     return (1, 0)
@@ -161,12 +161,11 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
     genres = list(nfo.genres) if nfo else []
     mapped_s, mapped_w, unmapped = map_genres_ex(cfg, genres)
     mapped = mapped_s + [w for w in mapped_w if w not in mapped_s]
-    min_votes = max(int(cfg.learning.min_votes), 1)
 
-    # 未映射题材的自学习命中：达阈值自动生效，未达阈值作低置信建议。
-    # learned.json 里的库名必须仍存在于当前配置——库被删除/改名后旧映射
-    # 不得参与决策（learned_pick 取 cfg.libraries[lib] 会 KeyError 崩扫描）。
-    auto_hits, soft_hits = [], []
+    # 未映射题材的自学习命中一律只作低置信建议（D-20261125-05）：
+    # 票数永不触发自动生效/择优。learned.json 里的库名必须仍存在于当前配置——
+    # 库被删除/改名后旧映射不得参与决策（learned_pick 取 cfg.libraries[lib] 会 KeyError 崩扫描）。
+    soft_hits = []
     for g in unmapped:
         hit = best_for(learned, g)
         if not hit:
@@ -174,11 +173,8 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
         lib, votes, manual = hit
         if lib not in cfg.libraries:
             continue
-        if votes >= min_votes:
-            auto_hits.append((g, lib, votes, manual))
-        elif votes > 0:
+        if votes > 0:
             soft_hits.append((g, lib, votes, manual))
-    auto_hits.sort(key=lambda h: (-h[2], -h[3]))
 
     scoring = score_plot(plot, cfg) if cfg.plot.enabled else []
     best = scoring[0] if scoring else None
@@ -207,7 +203,7 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             ev.append("无摘要文本可分析")
         if soft_hits:
             g, lib, votes, _manual = soft_hits[0]
-            ev.append(f"自学习仅 {votes} 票未自动生效（『{g}』→『{lib}』），"
+            ev.append(f"自学习建议（『{g}』→『{lib}』，{votes} 票，仅作建议），"
                       "可在计划页人工确认")
         return Decision("兜底库", str(cfg.fallback_path), LEVEL_FALLBACK, reason, ev, "low")
 
@@ -225,16 +221,15 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
         if genres:
             ev.append("NFO 题材：" + "、".join(genres))
         return Decision(lib, str(cfg.libraries[lib].path), LEVEL_LEARNED,
-                        f"自学习映射：『{g}』→『{lib}』", ev,
-                        "medium" if votes >= min_votes else "low")
+                        f"自学习建议：『{g}』→『{lib}』（仅作建议，默认不勾选）", ev,
+                        "low")
 
     def rule_pick(extra: str = "") -> Decision:
         weak_only = bool(mapped_w) and not mapped_s
         candidates = mapped_s or mapped_w
-        votes_map = {n: votes_for(learned, genres, n) for n in mapped}
-        # 优先级表为主；未列入优先级的库之间按历史倾向（自学习票数）裁决
+        # 优先级表为主；未列入优先级的库之间按声明顺序裁决（票数不再参与择优）
         decl = {n: i for i, n in enumerate(cfg.libraries)}
-        winner = min(candidates, key=lambda n: (*_rank(cfg, n), -votes_map[n], decl[n]))
+        winner = min(candidates, key=lambda n: (*_rank(cfg, n), decl[n]))
         rank = _rank(cfg, winner)
         ev = []
         for g in genres:
@@ -249,9 +244,6 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             ev.append(f"弱标签『{trig}』→ {winner}（弱信号，默认不勾选）")
         if unmapped:
             ev.append("未映射题材：" + "、".join(unmapped))
-        if any(votes_map.values()):
-            ev.append("历史倾向：" + "；".join(
-                f"{n} {v} 票" for n, v in votes_map.items() if v))
         if extra:
             ev.append(extra)
         if len(mapped) > 1 and cfg.strategy == "smart" and scoring:
@@ -276,12 +268,10 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             if cand and cand[0][1] >= cfg.plot.min_score and \
                     (len(cand) == 1 or cand[0][1] - cand[1][1] >= 1.0):
                 return plot_pick(f"多题材候选 {'/'.join(mapped)}，摘要评分择优")
-            return rule_pick("多题材候选，摘要评分不足以区分，按优先级表与历史倾向")
+            return rule_pick("多题材候选，摘要评分不足以区分，按优先级表与声明顺序")
         return rule_pick()
 
-    # 有题材但全部未映射：自学习（达阈值）→ 摘要预判 → 低票建议 → 兜底
-    if auto_hits:
-        return learned_pick(auto_hits[0])
+    # 有题材但全部未映射：摘要预判 → 自学习建议 → 兜底（票数不再自动生效）
     if best and best[1] >= cfg.plot.min_score:
         return plot_pick(f"题材 {'、'.join(unmapped)} 未映射，按摘要预判")
     if soft_hits:

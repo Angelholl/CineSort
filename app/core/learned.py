@@ -1,9 +1,9 @@
-"""自学习存储：把执行结果沉淀为 题材→库 映射（决策 D-20261101-03）。
+"""自学习存储：把执行结果沉淀为 题材→库 映射（决策 D-20261125-05）。
 
 - 数据在 runtime/learned.json（跟配置位置走，不进用户手写的 config.toml）；
-- 人工改判一票记 2 分（强信号），确认规则/预判结果一票记 1 分；
+- 人工改判与确认结果一律 +1 票，仅作建议（票数不再自动生效/择优）；
 - 兜底库不入学习（防止短路摘要预判与规则）；
-- 票数 ≥ learning.min_votes 后作为「自学习」级自动生效，未达到作为低置信建议。
+- 自学习命中恒为低置信、默认不勾选。
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def record(runtime_dir: Path, genres, target_lib: str, manual: bool) -> None:
             continue
         e = entries.setdefault(key, {"display": str(g).strip(), "libs": {}})
         info = e["libs"].setdefault(target_lib, {"votes": 0, "manual": 0, "last": ""})
-        info["votes"] += 2 if manual else 1
+        info["votes"] += 1
         if manual:
             info["manual"] += 1
         info["last"] = now

@@ -259,14 +259,17 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
         mark_applied(cfg.runtime_dir, done_ids)
         state.invalidate_plan()
         if cfg.learning.enabled:
-            # 自学习沉淀（D-20261101-03）：人工改判×2票，确认结果×1票。
+            # A-2（D-20261125-05）：人工改判信号移入会话留痕（Task-04），不再记题材票；
+            # 其余确认单元按窗口期语义仍记 1 票（Task-07 再改写归零）。
             # 复合单元整目录改判不入学习：其 NFO 至多描述其中一部影片，
             # 不为占位分类记账（计划 Task-05「learned 空转」的落实）。
             for u in units:
-                if u["id"] in set(done_ids) and not u.get("composite"):
-                    learned_store.record(cfg.runtime_dir, u["genres"],
-                                         u["target_lib"],
-                                         manual=u["id"] in overrides)
+                if u["id"] not in set(done_ids) or u.get("composite"):
+                    continue
+                if u["id"] in overrides:
+                    continue
+                learned_store.record(cfg.runtime_dir, u["genres"],
+                                     u["target_lib"], manual=False)
     job.result = {"moved": moved, "failed": failed, "failures": failures,
                   "session": jr.sid}
 

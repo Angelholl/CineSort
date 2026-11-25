@@ -18,12 +18,10 @@ def make_unit(uid: str, *, level="rule", status=READY, lib="科幻", conf="high"
     """按 planner 真实字段造 unit（只造 viewmodel 用到的键 + 少量上下文）。
 
     注意 status 与 level 相互独立：fallback/plot 级别的单元同样可以是 READY。
-    default_selected 缺省时复刻 planner 的规则（READY 且规则级 / 自学习且中置信）。弱规则（low）不默认勾选。
+    default_selected 缺省时复刻 planner 的规则（READY 且规则级且非低置信）。弱规则（low）与自学习级不默认勾选。
     """
     if default_selected is None:
-        default_selected = status == READY and (
-            (level == "rule" and conf != "low")
-            or (level == "learned" and conf == "medium"))
+        default_selected = status == READY and level == "rule" and conf != "low"
     return {
         "id": uid,
         "label": label or uid,
@@ -71,7 +69,7 @@ def test_viewmodel_importable_without_qt():
 def test_default_selection_follows_planner_flag(units):
     """默认勾选照抄 planner 的 default_selected，本模块不得自作主张重算。"""
     model = vm.PlanViewModel(units)
-    assert model.checked_ids() == ["A 规则", "C 自学"]
+    assert model.checked_ids() == ["A 规则"]      # 自学习级永不默认勾选
 
 
 def test_default_selection_is_copied_not_aliased(units):
@@ -122,7 +120,7 @@ def test_filter_and_search_preserve_selection_and_overrides(units):
 
     model.set_query("")
     model.set_filter("learned")
-    assert model.checked_ids() == ["A 规则", "B 摘要", "C 自学"]
+    assert model.checked_ids() == ["A 规则", "B 摘要"]   # C 自学默认不选
     assert model.effective_target_lib(model.unit("C 自学")) == "喜剧"
 
 

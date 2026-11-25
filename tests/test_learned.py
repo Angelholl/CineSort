@@ -26,11 +26,11 @@ def unit(genres, plot=""):
     return SimpleNamespace(nfo=NfoInfo(genres=list(genres), plot=plot))
 
 
-def test_record_votes_and_manual_weight(tmp_path):
+def test_record_manual_counts_one_vote(tmp_path):
     ls.record(tmp_path, ["古装"], "武侠", manual=False)
     ls.record(tmp_path, ["古装"], "武侠", manual=True)
     info = ls.load(tmp_path)["entries"]["古装"]["libs"]["武侠"]
-    assert info["votes"] == 3 and info["manual"] == 1      # 1 + 2
+    assert info["votes"] == 2 and info["manual"] == 1      # 一律 +1 票，仅作建议
 
 
 def test_fallback_never_learned(tmp_path):
@@ -41,17 +41,18 @@ def test_fallback_never_learned(tmp_path):
 def test_best_for_and_votes_for(tmp_path):
     ls.record(tmp_path, ["古装"], "武侠", manual=True)
     ls.record(tmp_path, ["武侠"], "武侠", manual=False)
-    assert ls.best_for(ls.load(tmp_path), "古装") == ("武侠", 2, 1)
-    assert ls.votes_for(ls.load(tmp_path), ["古装", "武侠"], "武侠") == 3
+    assert ls.best_for(ls.load(tmp_path), "古装") == ("武侠", 1, 1)
+    assert ls.votes_for(ls.load(tmp_path), ["古装", "武侠"], "武侠") == 2
 
 
-def test_learned_auto_hit_threshold(tmp_path):
+def test_learned_never_auto_effective_at_any_votes(tmp_path):
     cfg = make_cfg(min_votes=2)
     assert classify(unit(["古装"]), cfg).level == "fallback"   # 无学习记录
+    ls.record(tmp_path, ["古装"], "武侠", manual=True)
     ls.record(tmp_path, ["古装"], "武侠", manual=True)          # 2 票达标
     d = classify(unit(["古装"]), cfg, ls.load(tmp_path))
     assert d.level == "learned" and d.target == "武侠"
-    assert d.confidence == "medium"
+    assert d.confidence == "low"                              # 票数永不升置信
     assert any("自学习" in e for e in d.evidence)
 
 
@@ -65,8 +66,8 @@ def test_learned_soft_below_threshold_loses_to_plot(tmp_path):
     assert d2.level == "learned" and d2.target == "喜剧" and d2.confidence == "low"
 
 
-def test_smart_tie_break_by_votes_among_unprioritized(tmp_path):
-    """两库都未列入优先级表时，历史倾向（票数）裁决归属。"""
+def test_multi_candidate_ignores_votes_decl_order_decides(tmp_path):
+    """票数退出择优：两库都未列入优先级表时，按声明顺序裁决。"""
     cfg = make_cfg(min_votes=99, priority=())
     learned = {"entries": {
         "武侠": {"display": "武侠",
@@ -75,8 +76,8 @@ def test_smart_tie_break_by_votes_among_unprioritized(tmp_path):
                  "libs": {"喜剧": {"votes": 1, "manual": 0, "last": ""}}},
     }}
     d = classify(unit(["武侠", "喜剧"]), cfg, learned)
-    assert d.target == "喜剧" and d.level == "rule"
-    assert any("历史倾向" in e for e in d.evidence)
+    assert d.target == "武侠" and d.level == "rule"      # 声明顺序赢，票数不参与
+    assert not any("历史倾向" in e for e in d.evidence)
 
 
 def test_explicit_priority_beats_votes(tmp_path):

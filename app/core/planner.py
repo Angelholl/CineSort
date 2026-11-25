@@ -151,8 +151,7 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "conflict_kind": conflict_kind,
             "notes": unotes,
             "default_selected": status == READY and not is_composite and (
-                (dec.level == "rule" and dec.confidence != "low")
-                or (dec.level == "learned" and dec.confidence == "medium")),
+                dec.level == "rule" and dec.confidence != "low"),
             "applied": False,
             "files": [[rel, size, mtime] for rel, size, mtime in u.files],
             "total_size": u.total_size,

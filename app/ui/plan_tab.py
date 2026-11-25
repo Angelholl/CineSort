@@ -292,7 +292,7 @@ class PlanTab(QWidget):
         self.d_override = QComboBox()
         self.d_override.currentTextChanged.connect(self._on_override_changed)
         lay.addWidget(self.d_override)
-        hint = QLabel("改判记 2 票自学习；「执行选中」按改判后的目标库搬运。")
+        hint = QLabel("改判不再记自学习票；「执行选中」按改判后的目标库搬运。")
         hint.setProperty("mini", True)
         hint.setWordWrap(True)
         lay.addWidget(hint)
