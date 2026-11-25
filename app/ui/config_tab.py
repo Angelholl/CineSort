@@ -443,7 +443,9 @@ class ConfigTab(QWidget):
         self.toast(f"扫描完成：新增 {added} 个库，跳过 {len(subs) - added} 个已存在")
 
     def _del_library_row(self) -> None:
-        row = self.lib_table.selectionModel().currentRow()
+        # 注意用 QTableWidget.currentRow()；selectionModel().currentRow() 是
+        # Qt5 旧 API，PySide6 无此方法，槽内 AttributeError 会被 Qt 静默吞掉
+        row = self.lib_table.currentRow()
         if row >= 0:
             self.lib_table.removeRow(row)
             self._mark_dirty()

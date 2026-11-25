@@ -367,6 +367,26 @@ def test_add_library_dialog_cancel_adds_nothing(qapp, monkeypatch):
     tab.deleteLater()
 
 
+def test_del_library_row_removes_selected_row(qapp):
+    """回归（owner 实机 2026-11-25「所有库都无法删除」）：_del_library_row 误用
+    Qt5 时代 selectionModel().currentRow()（PySide6 无此方法，槽内 AttributeError
+    被 Qt 吞掉，按钮表现=点了没反应），改用 QTableWidget.currentRow()。"""
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    assert tab.lib_table.rowCount() == 2
+    tab.lib_table.selectRow(1)
+    tab._del_library_row()
+    assert tab.lib_table.rowCount() == 1
+    assert tab._dirty is True
+    tab.deleteLater()
+
+
+def test_del_library_row_no_selection_is_noop(qapp):
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab._del_library_row()                                  # 无选中行：不炸、不删
+    assert tab.lib_table.rowCount() == 2
+    tab.deleteLater()
+
+
 def test_scan_libraries_adds_subfolders_skips_files(qapp, monkeypatch, tmp_path):
     """扫描添加：父目录下每个直接子文件夹登记为一行，文件与隐藏目录跳过。"""
     from PySide6.QtWidgets import QFileDialog
