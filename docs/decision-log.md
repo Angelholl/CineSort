@@ -204,3 +204,7 @@
 - T12b 验收：713206e；ruff 全仓 0 项、定向 71 passed、全量 **352 passed**（基线 348 只增不减）、collect-only 一致；离屏冒烟 demo 40 行含 2 复合行、批量改判 28 部生效后 `can_apply` 转 True；离屏目验复合行徽章呈警示橙描边。
 - code-review 双轴（fixed point 58517b8）：Standards 无硬违规，5 条判断性提示（1/2 函数签名多模式与 None 双语义、3 demo 五处同步的 shotgun 苗头、4 徽章键双命名空间、5 vm 为 None 时批量项静默返回）——1/2/4/5 记账不阻塞，0 勾选时 toast「已生效 0 部」为可接受行为；Spec 无缺失，theme 补键确认为有依据卡外修正（已补记卡面）。
 - 老分类质量计划自此全部收口：C1-C9 + 老 Task-11（=嵌套计划 T04/05 白名单收敛）+ 老 Task-12（=T12a/b）+ 老 Task-13（被嵌套计划 T08 取代）；嵌套计划仅余 demo 样式走查类遗留给后续实机验证。
+
+## D-20261125-02 v0.6.3 发版 [PROXY-DECISION]
+- 背景：owner 令"现在补齐，然后 push 发版"；版号 AskUserQuestion 呈报后 owner 缺位未决，decision-proxy 四门代决为 **0.6.3**（依据=owner 既有 0.6.x 系列偏好、0.7.0 曾于 D-20261112-04 被驳回；本次内容=老 Task-12 批量改判 UI 补齐，修订号递增口径从宽从 owner 先例）。owner 事后驳回优先，届时按 D-20261112-04 先例删 Release/重建 tag。
+- 变更面：`app/__init__.py` 与 `installer/installer.iss` 兜底默认值 0.6.2→0.6.3。
