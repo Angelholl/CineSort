@@ -409,7 +409,7 @@ class ConfigTab(QWidget):
         chosen = QFileDialog.getExistingDirectory(self, "选择库目录", "")
         if not chosen:
             return
-        self._add_library_row([Path(chosen).name, str(chosen), "", ""])
+        self._add_library_row([Path(chosen).name, str(chosen), Path(chosen).name, ""])
 
     def _del_library_row(self) -> None:
         row = self.lib_table.selectionModel().currentRow()

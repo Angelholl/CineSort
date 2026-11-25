@@ -338,8 +338,21 @@ def test_add_library_via_dialog_prefills_row(qapp, monkeypatch):
     assert tab.lib_table.rowCount() == 3
     assert tab.lib_table.item(2, 0).text() == "新库"
     assert tab.lib_table.item(2, 1).text() == "E:/media/新库"
-    assert tab.lib_table.item(2, 2).text() == ""
+    assert tab.lib_table.item(2, 2).text() == "新库"  # 卡 LIB-01：关键词同步预填库名
     assert tab._dirty is True
+    tab.deleteLater()
+
+
+def test_add_library_prefills_keyword_with_folder_name(qapp, monkeypatch, tmp_path):
+    """回归（卡 LIB-01）：添加库时关键词列同步预填文件夹名，加权词留空。"""
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path))
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    tab.btn_add.click()
+    row = tab.lib_table.rowCount() - 1
+    assert [tab.lib_table.item(row, c).text() for c in range(4)] == \
+        [tmp_path.name, str(tmp_path), tmp_path.name, ""]
     tab.deleteLater()
 
 
