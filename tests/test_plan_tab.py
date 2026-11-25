@@ -74,6 +74,36 @@ def test_clear_button_syncs_table_and_vm(tab):
     assert states == {Qt.Unchecked}
 
 
+def test_header_check_click_toggles_select_all(tab):
+    """回归（owner 2026-11-25）：表头 ✓ 点击=全选/全不选切换。
+    未全勾→全部勾选；已全勾→全部取消；仅 ✓ 列响应，其他列头不干预勾选。"""
+    tab, _ = tab
+    tab._clear_selection()
+    assert tab.vm.checked == set()
+    tab._toggle_select_all(0)                     # COL_CHECK 表头
+    assert tab.vm.checked == {tab._rows[r]["id"] for r in range(tab.table.rowCount())}
+    states = {tab.table.item(r, COL_CHECK).checkState()
+              for r in range(tab.table.rowCount())}
+    assert states == {Qt.Checked}
+    tab._toggle_select_all(0)                     # 再点=全部取消
+    assert tab.vm.checked == set()
+    states = {tab.table.item(r, COL_CHECK).checkState()
+              for r in range(tab.table.rowCount())}
+    assert states == {Qt.Unchecked}
+    tab._toggle_select_all(1)                     # 其他列头：不改变勾选
+    assert tab.vm.checked == set()
+
+
+def test_header_check_partial_checked_selects_all(tab):
+    """部分勾选状态下点击 ✓ → 全选（而非取消）。"""
+    tab, _ = tab
+    tab._clear_selection()
+    tab.table.item(0, COL_CHECK).setCheckState(Qt.Checked)
+    assert len(tab.vm.checked) == 1
+    tab._toggle_select_all(0)
+    assert tab.vm.checked == {tab._rows[r]["id"] for r in range(tab.table.rowCount())}
+
+
 def test_filter_rebuilds_and_keeps_selection(tab):
     tab, _ = tab
     tab._clear_selection()

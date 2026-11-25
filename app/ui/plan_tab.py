@@ -155,6 +155,9 @@ class PlanTab(QWidget):
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             ["✓", "影片", "判定", "置信", "目标库", "文件", "体积", "状态"])
+        head_chk = self.table.horizontalHeaderItem(0)
+        if head_chk:
+            head_chk.setToolTip("点击全选 / 全不选（部分勾选时点击=全选）")
         self.table.setItemDelegate(CellDelegate(self.table))
         self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)      # delegate 逐格填色，网格会露成列间竖缝
@@ -180,6 +183,7 @@ class PlanTab(QWidget):
                 head.setTextAlignment(align | Qt.AlignVCenter)
         self.table.itemSelectionChanged.connect(self._show_detail)
         self.table.itemChanged.connect(self._on_item_changed)
+        hh.sectionClicked.connect(self._toggle_select_all)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.splitter.addWidget(self.table)
@@ -594,6 +598,18 @@ class PlanTab(QWidget):
         self.vm.set_query(text)
         self._rebuild_table()
         self._update_summary()
+
+    def _toggle_select_all(self, section: int) -> None:
+        """表头 ✓ 列点击：未全勾→全部勾选可见行，已全勾→全部取消（owner 2026-11-25）。"""
+        if section != COL_CHECK or self.vm is None:
+            return
+        visible = {u["id"] for u in self.vm.rows()}
+        if visible and visible <= self.vm.checked:
+            self._clear_selection()
+        else:
+            self.vm.select_all_visible()
+            self._sync_checkmarks()
+            self._update_summary()
 
     def _select_ready(self) -> None:
         self.vm.select_visible_ready()
