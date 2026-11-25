@@ -11,6 +11,7 @@ fallback_path = 'G:\Media\_incoming\未分类'
 
 # 归类策略：
 #   smart      多题材命中多个候选库时，用摘要评分在候选中择优，评分不足回退优先级表（推荐）
+#   smart_weighted 只用加权关键词评分择优（普通关键词不参与），判不出时回退优先级表且默认不勾选
 #   priority   严格按优先级表，摘要只用于「题材完全未映射」时的预判
 #   genre_only 只看题材规则，完全不用摘要
 strategy = 'smart'

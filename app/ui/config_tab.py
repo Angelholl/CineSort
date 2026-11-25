@@ -81,7 +81,7 @@ class ConfigTab(QWidget):
         self.f_fallback_path = QLineEdit()
         self.f_staging_dir = QLineEdit()
         self.f_strategy = QComboBox()
-        self.f_strategy.addItems(["smart", "priority", "genre_only"])
+        self.f_strategy.addItems(["smart", "smart_weighted", "priority", "genre_only"])
         self.f_on_conflict = QComboBox()
         self.f_on_conflict.addItems(["skip", "rename"])
 
@@ -126,6 +126,8 @@ class ConfigTab(QWidget):
              "（目录名 .nfo-sorter-staging）：先整目录暂存并逐文件校验，再原子改名进库")),
             ("策略", self.f_strategy,
              ("smart：多库命中时先用摘要评分择优，评分不足以区分再按优先级表（推荐）；"
+             "smart_weighted：多库命中时只用加权关键词评分择优（普通关键词不参与，"
+             "避免库名预填偏向场面词）；判不出时按优先级表且默认不勾选；"
              "priority：严格按优先级表，摘要只用于题材完全未映射时的预判；"
              "genre_only：只看题材规则，完全不用摘要")),
             ("冲突处理", self.f_on_conflict,

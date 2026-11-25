@@ -345,3 +345,20 @@ def test_freshness_covers_batch_units(tmp_path):
         os.utime(f, ns=(10 ** 18, 10 ** 18))
     problems = check_plan_freshness(cfg, plan)
     assert any("Comp Dir" in p and "已变化" in p for p in problems)
+
+
+# ---------------- 卡 Task-05：smart_weighted 默认勾选结构性红线 ----------------
+def test_smart_weighted_default_not_selected(tmp_path):
+    """两条路径（加权词胜出 / 低置信回退）build_plan 后都不得默认勾选。"""
+    cfg = load_config(build_env(tmp_path, strategy="smart_weighted"))
+    make_movie(cfg.source_root, "加权胜出 (2021)", title="加权胜出",
+               genres=("动作", "科幻"), plot="一场星际远征", tmdb="41")
+    make_movie(cfg.source_root, "回退低置信 (2021)", title="回退低置信",
+               genres=("动作", "科幻"), plot="一家人在海边度假", tmdb="42")
+    plan = scan_and_plan(cfg)
+    p = by_id(plan)
+    assert p["加权胜出 (2021)"]["level"] == "plot"
+    assert p["回退低置信 (2021)"]["level"] == "rule"
+    assert p["回退低置信 (2021)"]["confidence"] == "low"
+    assert p["加权胜出 (2021)"]["default_selected"] is False
+    assert p["回退低置信 (2021)"]["default_selected"] is False

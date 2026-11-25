@@ -80,8 +80,11 @@ def map_genres(cfg: Config, genres: list[str]) -> tuple[list[str], list[str]]:
     return s, u
 
 
-def score_plot(plot: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
-    """摘要关键词评分：score = Σ 权重×次数。返回 [(库名, 分, 命中明细)] 降序。"""
+def score_plot(plot: str, cfg: Config,
+               weighted_only: bool = False) -> list[tuple[str, float, list[str]]]:
+    """摘要关键词评分：score = Σ 权重×次数。返回 [(库名, 分, 命中明细)] 降序。
+    weighted_only=True 时只累计 keywords_weighted，命中明细带「加权」前缀。
+    """
     text = (plot or "").lower()
     if not text:
         return []
@@ -89,16 +92,17 @@ def score_plot(plot: str, cfg: Config) -> list[tuple[str, float, list[str]]]:
     for lib in cfg.libraries.values():
         score = 0.0
         hits: list[str] = []
-        for kw in lib.keywords:
-            n = text.count(kw.lower())
-            if n:
-                score += n
-                hits.append(f"{kw}×{n}")
+        if not weighted_only:
+            for kw in lib.keywords:
+                n = text.count(kw.lower())
+                if n:
+                    score += n
+                    hits.append(f"{kw}×{n}")
         for kw, w in lib.keywords_weighted.items():
             n = text.count(kw.lower())
             if n:
                 score += w * n
-                hits.append(f"{kw}×{n}(权重{w:g})")
+                hits.append(f"{'加权' if weighted_only else ''}{kw}×{n}(权重{w:g})")
         if score > 0:
             if cfg.plot.normalize:
                 score = score / max(len(plot) ** 0.5, 1.0)
@@ -177,6 +181,8 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             soft_hits.append((g, lib, votes, manual))
 
     scoring = score_plot(plot, cfg) if cfg.plot.enabled else []
+    mc_weighted = (score_plot(plot, cfg, weighted_only=True)
+                   if (cfg.plot.enabled and cfg.strategy == "smart_weighted") else [])
     best = scoring[0] if scoring else None
 
     title_text = " ".join(t.strip() for t in
@@ -207,12 +213,13 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
                       "可在计划页人工确认")
         return Decision("兜底库", str(cfg.fallback_path), LEVEL_FALLBACK, reason, ev, "low")
 
-    def plot_pick(prefix: str) -> Decision:
-        name, sc, hits = best
+    def plot_pick(prefix: str, top=None) -> Decision:
+        name, sc, hits = top or best
         conf = "medium" if sc >= cfg.plot.min_score * 2 else "low"
+        tail = "（仅加权词）" if top is not None else ""
         return Decision(
             name, str(cfg.libraries[name].path), LEVEL_PLOT,
-            f"{prefix}：摘要评分『{name}』{sc:g} 分",
+            f"{prefix}：摘要评分『{name}』{sc:g} 分{tail}",
             [f"摘要命中：{h}" for h in hits[:8]], conf)
 
     def learned_pick(hit) -> Decision:
@@ -224,7 +231,7 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
                         f"自学习建议：『{g}』→『{lib}』（仅作建议，默认不勾选）", ev,
                         "low")
 
-    def rule_pick(extra: str = "") -> Decision:
+    def rule_pick(extra: str = "", force_low: bool = False, mc_scores=None) -> Decision:
         weak_only = bool(mapped_w) and not mapped_s
         candidates = mapped_s or mapped_w
         # 优先级表为主；未列入优先级的库之间按声明顺序裁决（票数不再参与择优）
@@ -236,8 +243,12 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             mm, _ = map_genres(cfg, [g])
             if mm:
                 t = mm[0]
-                ev.append(f"题材『{g}』→ {t}（优先级第 {rank[1] + 1} 位）"
-                          if t == winner else f"题材『{g}』→ {t}")
+                if t != winner:
+                    ev.append(f"题材『{g}』→ {t}")
+                elif rank[0] == 0:
+                    ev.append(f"题材『{g}』→ {t}（优先级第 {rank[1] + 1} 位）")
+                else:
+                    ev.append(f"题材『{g}』→ {t}（未列入优先级表）")
         if weak_only:
             wmap = weak_alias_map(cfg)
             trig = "、".join(g for g in genres if wmap.get(normalize_key(g)) == winner)
@@ -246,10 +257,11 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
             ev.append("未映射题材：" + "、".join(unmapped))
         if extra:
             ev.append(extra)
-        if len(mapped) > 1 and cfg.strategy == "smart" and scoring:
+        score_ev = mc_scores if mc_scores is not None else scoring
+        if len(mapped) > 1 and cfg.strategy in ("smart", "smart_weighted") and score_ev:
             ev.append("候选库摘要评分：" + "；".join(
-                f"{n}={s:.1f}" for n, s, _ in scoring if n in mapped))
-        conf = "low" if weak_only else "high"
+                f"{n}={s:.1f}" for n, s, _ in score_ev if n in mapped))
+        conf = "low" if (weak_only or force_low) else "high"
         return Decision(winner, str(cfg.libraries[winner].path), LEVEL_RULE,
                         f"题材规则命中『{winner}』" + (f"（{extra}）" if extra else "")
                         + ("（弱标签）" if weak_only else ""),
@@ -263,12 +275,20 @@ def classify(unit, cfg: Config, learned: dict | None = None) -> Decision:
         return fallback("无 NFO 或无题材信息，落入兜底库")
 
     if mapped:
-        if cfg.strategy == "smart" and len(mapped) > 1:
-            cand = [(n, s, h) for n, s, h in scoring if n in mapped]
+        if cfg.strategy in ("smart", "smart_weighted") and len(mapped) > 1:
+            source = mc_weighted if cfg.strategy == "smart_weighted" else scoring
+            cand = [(n, s, h) for n, s, h in source if n in mapped]
             if cand and cand[0][1] >= cfg.plot.min_score and \
                     (len(cand) == 1 or cand[0][1] - cand[1][1] >= 1.0):
-                return plot_pick(f"多题材候选 {'/'.join(mapped)}，摘要评分择优")
-            return rule_pick("多题材候选，摘要评分不足以区分，按优先级表与声明顺序")
+                return plot_pick(f"多题材候选 {'/'.join(mapped)}，摘要评分择优",
+                                 top=(cand[0] if cfg.strategy == "smart_weighted" else None))
+            # 旧 smart 回退理由逐字不变；新策略用卡面指定文案 + 低置信诚实化
+            fallback_reason = ("多题材候选，摘要评分不足以区分，按优先级表"
+                               if cfg.strategy == "smart_weighted"
+                               else "多题材候选，摘要评分不足以区分，按优先级表与声明顺序")
+            return rule_pick(fallback_reason,
+                             force_low=(cfg.strategy == "smart_weighted"),
+                             mc_scores=mc_weighted)
         return rule_pick()
 
     # 有题材但全部未映射：摘要预判 → 自学习建议 → 兜底（票数不再自动生效）

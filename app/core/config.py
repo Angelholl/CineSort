@@ -17,7 +17,7 @@ from pathlib import Path
 
 import tomllib
 
-STRATEGIES = ("smart", "priority", "genre_only")
+STRATEGIES = ("smart", "smart_weighted", "priority", "genre_only")
 CONFLICT_MODES = ("skip", "rename")
 STAGING_NAME = ".nfo-sorter-staging"
 

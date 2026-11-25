@@ -300,3 +300,59 @@ def test_rule_evidence_no_votes_lines(tmp_path):
     d = classify(unit(["科幻", "动作"]), cfg, learned)
     assert d.level == "rule"
     assert not any("历史倾向" in e or "票" in e for e in d.evidence)
+
+
+# ---------------- 卡 Task-05（D-20261125-05）：smart_weighted 策略 ----------------
+def test_smart_weighted_ignores_plain_keywords():
+    """普通关键词（库名预填词）不参与择优：加权词缺席→回退规则且低置信。"""
+    cfg = make_cfg(strategy="smart_weighted")
+    # 「太空/外星人」是科幻库的普通关键词；加权词「星际」未出现
+    d = classify(unit(["动作", "科幻"], "飞船穿越太空，外星人入侵地球"), cfg)
+    assert d.level == "rule" and d.confidence == "low"
+
+
+def test_smart_weighted_weighted_word_decides():
+    """加权词独高分→摘要级胜出，理由带「仅加权词」后缀。"""
+    cfg = make_cfg(strategy="smart_weighted")
+    d = classify(unit(["动作", "科幻"], "一场星际远征"), cfg)
+    assert d.level == "plot" and d.target == "科幻"
+    assert "仅加权词" in d.reason or any("仅加权词" in e for e in d.evidence)
+
+
+def test_smart_weighted_margin_discipline():
+    """领先差 0.9 不足阈值→回退规则低置信；恰 1.0→择优（阈值两侧边界钉）。"""
+    cfg = make_cfg(strategy="smart_weighted")
+    cfg.libraries["科幻"].keywords_weighted = {"星": 3.0}
+    cfg.libraries["动作"].keywords_weighted = {"武": 2.1}
+    d = classify(unit(["动作", "科幻"], "星武"), cfg)
+    assert d.level == "rule" and d.confidence == "low"
+    cfg.libraries["动作"].keywords_weighted = {"武": 2.0}
+    d2 = classify(unit(["动作", "科幻"], "星武"), cfg)
+    assert d2.level == "plot" and d2.target == "科幻"
+
+
+def test_smart_unchanged_full_path():
+    """旧 smart 全链路逐字不变：加权开关默认 False=旧全量口径；多候选达标仍取全局 best，
+    即便全局最高分来自非候选库（现状快照钉，防顺手「修」）。"""
+    cfg = make_cfg()
+    plot = "鬼屋鬼屋鬼屋诅咒 太空太空"
+    assert score_plot(plot, cfg, weighted_only=False) == score_plot(plot, cfg)
+    d = classify(unit(["动作", "科幻"], plot), cfg)
+    assert d.level == "plot"
+    assert d.target == "恐怖"
+
+
+def test_evidence_priority_text_fixed():
+    """优先级证据文案：表内写位次、表外写「未列入优先级表」，不再一律第 1 位。"""
+    cfg = make_cfg()
+    cfg.genre_priority = ["科幻"]           # 动作/恐怖 均未列入
+    out = classify(unit(["动作", "恐怖"]), cfg)
+    assert out.target == "动作"
+    assert not any("优先级第" in e for e in out.evidence)
+    assert any("未列入优先级表" in e for e in out.evidence)
+
+    cfg2 = make_cfg()
+    cfg2.genre_priority = ["科幻", "动作", "恐怖"]
+    in_table = classify(unit(["动作", "恐怖"]), cfg2)
+    assert in_table.target == "动作"
+    assert any("优先级第 2 位" in e for e in in_table.evidence)

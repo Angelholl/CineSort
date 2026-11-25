@@ -399,3 +399,12 @@ def test_first_run_bootstrap_independent_of_cwd(tmp_path, monkeypatch):
     ensure_first_run_config(cfg_path)
     cfg = load_config(cfg_path)
     assert cfg.source_root == (cfg_path.parent / "data" / "待整理").resolve()
+
+
+# ---------------- 卡 Task-05（D-20261125-05）：smart_weighted 新枚举值 ----------------
+def test_strategy_accepts_smart_weighted(tmp_path):
+    """新策略值可加载；未知策略仍一律 ConfigError（既有断言不减）。"""
+    cfg = load_config(build_env(tmp_path, strategy="smart_weighted"))
+    assert cfg.strategy == "smart_weighted"
+    with pytest.raises(ConfigError):
+        load_config(build_env(tmp_path / "bogus", strategy="bogus"))

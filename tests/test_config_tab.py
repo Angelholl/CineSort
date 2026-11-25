@@ -668,3 +668,11 @@ def test_config_fields_have_tooltips(qapp):
     assert "+1 分" in headers[2]
     assert "权重 × 出现次数" in headers[3]
     tab.deleteLater()
+
+
+def test_config_tab_strategy_items(qapp):
+    """策略下拉顺序钉死：smart_weighted 紧跟 smart（离屏）。"""
+    tab = ConfigTab(StubState(full_describe()), toast=lambda m: None)
+    assert [tab.f_strategy.itemText(i) for i in range(tab.f_strategy.count())] == [
+        "smart", "smart_weighted", "priority", "genre_only"]
+    tab.deleteLater()
