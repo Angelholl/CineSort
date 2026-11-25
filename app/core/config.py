@@ -201,10 +201,11 @@ def load_config(path: Path | str) -> Config:
         for k, v in (item.get("keywords_weighted") or {}).items():
             kww[str(k).strip()] = float(v)
         libraries[name] = Library(name=name, path=lib_path, keywords=kws, keywords_weighted=kww)
-    if not libraries:
-        raise ConfigError("至少需要定义一个 [[library]]")
-
     warnings: list[str] = []
+    if not libraries:
+        # 死锁解除（owner 2026-11-25 反馈"电影库名无法删除"）：零库不再硬拦，
+        # 降为警告——删除最后一个库后必须能保存落盘，否则库永远删不掉。
+        warnings.append("未定义任何媒体库：所有整理文件将落入兜底库")
     genre_priority_raw = list(data.get("genre_priority", []))
     genre_priority: list[str] = []
     for name in genre_priority_raw:
@@ -280,6 +281,14 @@ def load_config(path: Path | str) -> Config:
         for j in range(i + 1, len(all_roots)):
             ta, pa = all_roots[i]
             tb, pb = all_roots[j]
+            # owner 2026-11-25 确认：source_root 位于媒体库内部是真实合法场景
+            # （如"已删除待整理"目录放在媒体库内），放行为警告；反向（媒体库
+            # 位于源内）仍硬拦，避免库内容被当作待整理源扫描。
+            if ta == "source_root" and tb.startswith("媒体库") \
+                    and is_sub_path(pa, pb):
+                warnings.append(
+                    f"source_root（{pa}）位于 {tb}（{pb}）内部：请留意扫描范围")
+                continue
             _check_overlap(pa, pb, ta, tb)
 
     if staging_dir is not None:

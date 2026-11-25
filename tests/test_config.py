@@ -58,6 +58,17 @@ def test_missing_dir_config_can_save_after_dropping_library(tmp_path):
     assert set(load_config(cfg_path).libraries) == {"动作"}   # 已真正落盘
 
 
+def test_zero_libraries_downgraded_to_warning(tmp_path):
+    # 死锁解除（owner 2026-11-25）：删光库后保存必须成功，零库降为警告
+    cfg_path = build_env(tmp_path, overrides={"genre_priority": []})
+    d = describe(load_config(cfg_path))
+    d["libraries"] = []
+    new_cfg = save_config_dict(cfg_path, d)
+    assert new_cfg.libraries == {}
+    assert any("未定义任何媒体库" in w for w in new_cfg.warnings)
+    assert set(load_config(cfg_path).libraries) == set()   # 已真正落盘
+
+
 def test_duplicate_library_name_still_rejected(tmp_path):
     # 护栏钉：结构性错误（重复库名）保持硬拦
     lib = [{"name": "科幻", "path": str(tmp_path / "libs" / "科幻"),
@@ -75,6 +86,31 @@ def test_library_inside_source_rejected(tmp_path):
             "keywords": [], "keywords_weighted": {}}]
     with pytest.raises(ConfigError):
         load_config(build_env(tmp_path, overrides={"libraries": lib}))
+
+
+def test_source_inside_library_downgraded_to_warning(tmp_path):
+    # owner 2026-11-25 确认：source_root 位于媒体库内部是真实合法场景，放行为警告
+    src = tmp_path / "libs" / "已删除" / "已删除待整理"
+    src.mkdir(parents=True)
+    lib = [{"name": "已删除", "path": str(tmp_path / "libs" / "已删除"),
+            "keywords": [], "keywords_weighted": {}}]
+    cfg = load_config(build_env(tmp_path, overrides={
+        "source_root": str(src), "libraries": lib, "genre_priority": []}))
+    assert any("source_root" in w and "内部" in w for w in cfg.warnings)
+
+
+def test_source_inside_library_save_after_dropping_library(tmp_path):
+    # 用户报告死锁直钉：source_root 在媒体库内部时，删除该库后保存必须落盘成功
+    cfg_path = build_env(tmp_path, overrides={
+        "source_root": str(tmp_path / "libs" / "已删除" / "已删除待整理"),
+        "libraries": [{"name": "已删除", "path": str(tmp_path / "libs" / "已删除"),
+                       "keywords": [], "keywords_weighted": {}}],
+        "genre_priority": []})
+    d = describe(load_config(cfg_path))
+    d["libraries"] = []
+    new_cfg = save_config_dict(cfg_path, d)
+    assert new_cfg.libraries == {}
+    assert set(load_config(cfg_path).libraries) == set()   # 已真正落盘
 
 
 def test_nested_libraries_rejected(tmp_path):

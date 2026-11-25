@@ -190,9 +190,14 @@ class ConfigTab(QWidget):
         lib_btns = QHBoxLayout()
         self.btn_add = QPushButton("＋ 添加库")
         self.btn_add.clicked.connect(self._on_add_library_clicked)
+        self.btn_scan_libraries = QPushButton("🔍 扫描添加子文件夹")
+        self.btn_scan_libraries.setToolTip(
+            "选择一个父目录，把其直接子文件夹逐个登记为库（库名/关键词预填文件夹名）")
+        self.btn_scan_libraries.clicked.connect(self._on_scan_libraries_clicked)
         btn_del = QPushButton("－ 删除选中库")
         btn_del.clicked.connect(self._del_library_row)
         lib_btns.addWidget(self.btn_add)
+        lib_btns.addWidget(self.btn_scan_libraries)
         lib_btns.addWidget(btn_del)
         lib_btns.addStretch(1)
         ll.addLayout(lib_btns)
@@ -410,6 +415,31 @@ class ConfigTab(QWidget):
         if not chosen:
             return
         self._add_library_row([Path(chosen).name, str(chosen), Path(chosen).name, ""])
+
+    def _on_scan_libraries_clicked(self) -> None:
+        """扫描添加：选父目录，把其直接子文件夹逐个登记为库（已存在的路径跳过）。"""
+        parent = QFileDialog.getExistingDirectory(self, "选择要扫描的父目录", "")
+        if not parent:
+            return
+        subs = sorted(p for p in Path(parent).iterdir()
+                      if p.is_dir() and not p.name.startswith("."))
+        if not subs:
+            self.toast("该目录下没有子文件夹")
+            return
+        existing = set()
+        for r in range(self.lib_table.rowCount()):
+            it = self.lib_table.item(r, 1)
+            if it is not None:
+                existing.add(it.text())
+        added = 0
+        for p in subs:
+            sp = str(p)
+            if sp in existing:
+                continue
+            self._add_library_row([p.name, sp, p.name, ""])
+            added += 1
+        self._mark_dirty()
+        self.toast(f"扫描完成：新增 {added} 个库，跳过 {len(subs) - added} 个已存在")
 
     def _del_library_row(self) -> None:
         row = self.lib_table.selectionModel().currentRow()

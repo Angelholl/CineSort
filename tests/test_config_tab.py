@@ -367,6 +367,64 @@ def test_add_library_dialog_cancel_adds_nothing(qapp, monkeypatch):
     tab.deleteLater()
 
 
+def test_scan_libraries_adds_subfolders_skips_files(qapp, monkeypatch, tmp_path):
+    """扫描添加：父目录下每个直接子文件夹登记为一行，文件与隐藏目录跳过。"""
+    from PySide6.QtWidgets import QFileDialog
+    for name in ("科幻", "动作", ".隐藏"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "说明.txt").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path))
+    toasts = []
+    tab = ConfigTab(StubState(full_describe()), toast=toasts.append)
+    tab.btn_scan_libraries.click()
+    assert tab.lib_table.rowCount() == 4              # 原有 2 行 + 新增 2 行
+    added = [(tab.lib_table.item(r, 0).text(),
+              tab.lib_table.item(r, 1).text(),
+              tab.lib_table.item(r, 2).text())
+             for r in (2, 3)]
+    assert added == [("动作", str(tmp_path / "动作"), "动作"),
+                     ("科幻", str(tmp_path / "科幻"), "科幻")]   # 排序后顺序
+    assert tab._dirty is True
+    assert any("新增 2" in m for m in toasts)
+    tab.deleteLater()
+
+
+def test_scan_libraries_skips_existing_paths(qapp, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path))
+    toasts = []
+    tab = ConfigTab(StubState(full_describe()), toast=toasts.append)
+    # 预置一行与子文件夹同路径的库，扫描不应重复登记
+    tab._add_library_row(["科幻", str(tmp_path / "科幻"), "科幻", ""])
+    (tmp_path / "科幻").mkdir()
+    (tmp_path / "动作").mkdir()
+    tab.btn_scan_libraries.click()
+    assert tab.lib_table.rowCount() == 4   # Stub 自带 2 行 + 预置 1 行 + 新增 1 行
+    assert any("新增 1" in m and "跳过 1" in m for m in toasts)
+    tab.deleteLater()
+
+
+def test_scan_libraries_cancel_and_empty_dir(qapp, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: "")
+    toasts = []
+    tab = ConfigTab(StubState(full_describe()), toast=toasts.append)
+    tab.btn_scan_libraries.click()
+    assert tab.lib_table.rowCount() == 2
+    assert tab._dirty is False
+    # 空目录：只提示，不加行
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path))
+    tab.btn_scan_libraries.click()
+    assert tab.lib_table.rowCount() == 2
+    assert tab._dirty is False
+    assert any("没有子文件夹" in m for m in toasts)
+    tab.deleteLater()
+
+
 def test_demo_mode_disables_browse_controls(qapp):
     tab = ConfigTab(None, toast=lambda m: None)
     assert tab.btn_browse_source.isEnabled() is False
