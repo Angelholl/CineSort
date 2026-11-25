@@ -33,27 +33,58 @@ def test_dialog_lists_candidates_sorted(qapp):
     dlg.deleteLater()
 
 
-def test_dialog_add_strong_emits_lines(qapp):
+def test_stage_then_save_all_aggregates_by_kind(qapp):
+    """批量分拣钉（owner 2026-11-25：单个保存过繁琐）：加入清单不触发 on_add；
+    统一保存按强/弱各一次性聚合回调。"""
     added: list[tuple[str, list[str]]] = []
     dlg = AliasScanDialog(CANDIDATES, ["科幻", "动作"],
                           lambda kind, lines: added.append((kind, lines)))
-    dlg.tbl_genres.selectAll()
+    # 第一批：题材榜勾 1 行 → 强别名 → 清单
+    dlg.tbl_genres.selectRow(0)
     dlg.cmb_lib.setCurrentText("动作")
-    dlg._add("strong")
-    assert added == [("strong", ["西部=动作", "Western=动作"])]
+    dlg._stage("strong")
+    assert added == []                                     # 分拣阶段不落编辑框
+    assert dlg.tbl_staged.rowCount() == 1
+    # 第二批：词榜勾 1 行 → 弱别名 → 清单（跨榜连续分拣，换目标库）
+    dlg.cmb_lib.setCurrentText("科幻")
+    dlg.tbl_tokens.selectRow(0)
+    dlg.tabs.setCurrentWidget(dlg.tbl_tokens)
+    dlg._stage("weak")
+    assert dlg.tbl_staged.rowCount() == 2
+    assert dlg.tbl_staged.item(1, 2).text() == "弱"
+    # 统一保存：强/弱各一次聚合回调
+    dlg._save_all()
+    assert added == [("strong", ["西部=动作"]), ("weak", ["重复词=科幻"])]
     dlg.deleteLater()
 
 
-def test_dialog_add_weak_and_empty_selection_noop(qapp):
+def test_stage_multi_rows_and_dedupe(qapp):
     added: list[tuple[str, list[str]]] = []
     dlg = AliasScanDialog(CANDIDATES, ["科幻"],
                           lambda kind, lines: added.append((kind, lines)))
-    dlg._add("weak")                                        # 无勾选：不加
+    dlg.tbl_genres.selectAll()
+    dlg.cmb_lib.setCurrentText("科幻")
+    dlg._stage("strong")                                   # 两行一次入清单
+    assert dlg.tbl_staged.rowCount() == 2
+    dlg.tbl_genres.selectRow(0)
+    dlg._stage("strong")                                   # 同候选同库重复加入跳过
+    assert dlg.tbl_staged.rowCount() == 2
+    dlg._save_all()
+    assert added == [("strong", ["西部=科幻", "Western=科幻"])]
+    dlg.deleteLater()
+
+
+def test_unstage_and_empty_save_noop(qapp):
+    added: list[tuple[str, list[str]]] = []
+    dlg = AliasScanDialog(CANDIDATES, ["科幻"],
+                          lambda kind, lines: added.append((kind, lines)))
+    dlg.tbl_genres.selectRow(0)
+    dlg._stage("strong")
+    dlg.tbl_staged.selectRow(0)
+    dlg._unstage_selected()
+    assert dlg.tbl_staged.rowCount() == 0
+    dlg._save_all()                                        # 空清单：无回调
     assert added == []
-    dlg.tbl_tokens.selectRow(0)
-    dlg.tabs.setCurrentWidget(dlg.tbl_tokens)               # 切到词榜页再操作
-    dlg._add("weak")
-    assert added == [("weak", ["重复词=科幻"])]
     dlg.deleteLater()
 
 
