@@ -1,7 +1,7 @@
 """配置加载、数据模型与校验。
 
 校验规则（决策 D-20261031-03 / 评议条件 C4）：
-- source_root、所有库根、兜底库必须是真实存在的目录；
+- source_root、所有库根、兜底库必须是真实存在的目录（不存在时降级为 warnings，不再硬拦——卡 DIR-01）；
 - 库根两两互异、互不嵌套；库根目录名不得为 .nfo-sorter-staging；
 - source_root 与任何库根/兜底库互不重叠（双向）；
 - staging_dir（若配置）不得位于 source_root 或任何库根内部；
@@ -123,9 +123,11 @@ class Config:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def _require_dir(p: Path, what: str) -> None:
+def _require_dir(p: Path, what: str, warnings: list[str]) -> None:
+    """宽容降级（卡 DIR-01，同 D-20261112-02 模式）：路径存在性属事实性错误，
+    降级为 warnings 告警不中断加载；缺键/类型错等结构性错误仍硬拦。"""
     if not p.is_dir():
-        raise ConfigError(f"{what}不存在或不是目录：{p}")
+        warnings.append(f"{what}不存在或不是目录：{p}")
 
 
 def _abs(p: Path | str) -> Path:
@@ -265,11 +267,11 @@ def load_config(path: Path | str) -> Config:
     # ---- 路径存在性与重叠校验（C4） ----
     source_root = _abs(data["source_root"]).resolve()
     fallback_path = _abs(data["fallback_path"]).resolve()
-    _require_dir(source_root, "source_root")
-    _require_dir(fallback_path, "fallback_path")
+    _require_dir(source_root, "source_root", warnings)
+    _require_dir(fallback_path, "fallback_path", warnings)
     for lib in libraries.values():
         lib.path = lib.path.resolve()
-        _require_dir(lib.path, f"媒体库[{lib.name}]的 path")
+        _require_dir(lib.path, f"媒体库[{lib.name}]的 path", warnings)
 
     all_roots = [("source_root", source_root)] + [
         (f"媒体库[{name}]", lib.path) for name, lib in libraries.items()

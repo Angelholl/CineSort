@@ -28,14 +28,41 @@ def test_valid_load_and_hash_stable(tmp_path):
     assert cfg.config_hash() == load_config(cfg_path).config_hash()
 
 
-def test_missing_source_rejected(tmp_path):
-    with pytest.raises(ConfigError):
-        load_config(build_env(tmp_path, overrides={
-            "source_root": str(tmp_path / "nope")}))
+def test_missing_source_downgraded_to_warning(tmp_path):
+    # 宽容降级（卡 DIR-01）：source_root 不存在不再硬拦，改记 warnings
+    missing = tmp_path / "nope"
+    cfg = load_config(build_env(tmp_path, overrides={
+        "source_root": str(missing)}))
+    assert any("source_root" in w and str(missing) in w for w in cfg.warnings)
 
 
-def test_missing_library_rejected(tmp_path):
-    lib = [{"name": "科幻", "path": str(tmp_path / "nope"),
+def test_missing_library_downgraded_to_warning(tmp_path):
+    # 宽容降级（卡 DIR-01）：库目录不存在不再硬拦，改记 warnings
+    missing = tmp_path / "nope"
+    lib = [{"name": "科幻", "path": str(missing),
+            "keywords": [], "keywords_weighted": {}}]
+    cfg = load_config(build_env(tmp_path, overrides={"libraries": lib}))
+    assert any("科幻" in w and str(missing) in w for w in cfg.warnings)
+
+
+def test_missing_dir_config_can_save_after_dropping_library(tmp_path):
+    # 死锁解除直钉：source_root 指向不存在目录时，删掉悬空库后 save_config_dict 落盘成功
+    cfg_path = build_env(tmp_path, overrides={
+        "source_root": str(tmp_path / "gone")})
+    d = describe(load_config(cfg_path))
+    d["libraries"] = [lib for lib in d["libraries"] if lib["name"] != "科幻"]
+    d["genre_priority"] = ["动作"]                     # 同步移除悬空条目
+    new_cfg = save_config_dict(cfg_path, d)            # 保存前不再被硬拦
+    assert set(new_cfg.libraries) == {"动作"}
+    assert any("source_root" in w for w in new_cfg.warnings)
+    assert set(load_config(cfg_path).libraries) == {"动作"}   # 已真正落盘
+
+
+def test_duplicate_library_name_still_rejected(tmp_path):
+    # 护栏钉：结构性错误（重复库名）保持硬拦
+    lib = [{"name": "科幻", "path": str(tmp_path / "libs" / "科幻"),
+            "keywords": [], "keywords_weighted": {}},
+           {"name": "科幻", "path": str(tmp_path / "libs" / "动作"),
             "keywords": [], "keywords_weighted": {}}]
     with pytest.raises(ConfigError):
         load_config(build_env(tmp_path, overrides={"libraries": lib}))

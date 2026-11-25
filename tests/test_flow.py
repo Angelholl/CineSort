@@ -16,7 +16,7 @@ from conftest import build_env, make_movie
 
 from app.core import jobs as jobs_mod
 from app.core import preflight, scanner
-from app.core.config import ConfigError, load_config
+from app.core.config import load_config
 from app.core.journal import list_sessions
 from app.core.planner import build_plan, check_plan_freshness
 from app.state import AppState
@@ -106,11 +106,12 @@ def test_config_save_validate_and_reject(env_state):
     assert state.save_config(cfg_desc)["strategy"] == "priority"
     assert state.state_snapshot()["config"]["strategy"] == "priority"
 
+    # 宽容降级（卡 DIR-01）：source_root 不存在改为 warnings，保存必须成功
     bad = dict(state.state_snapshot()["config"])
     bad["source_root"] = str(env.path.parent / "nope")
-    with pytest.raises(ConfigError):
-        state.save_config(bad)
-    assert state.state_snapshot()["config"]["source_root"] == str(env.source_root)
+    saved = state.save_config(bad)
+    assert saved["source_root"] == str(env.path.parent / "nope")
+    assert any("source_root" in w for w in saved.get("warnings", []))
 
 
 def test_undo_preview_rejects_bad_name(env_state):
