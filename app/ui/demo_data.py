@@ -27,10 +27,12 @@ _EVIDENCE = {
                 "你于会话 7a3f9c21 人工改判（记 2 票）"],
     "fallback": ["题材全部未映射且摘要评分不足 → 兜底库",
                  "兜底占比 18.4% 超过 warn 阈值 15%"],
+    "composite": ["复合目录：一部影片一张 NFO 不能代表整个目录",
+                  "整目录待改判：批量指定目标库后方可执行"],
 }
 _LEVELS = ("rule", "plot", "learned", "fallback")
 _STATUSES = ("ready", "conflict_name", "already_placed", "multi_version",
-             "incomplete_leftover", "applied")
+             "incomplete_leftover", "applied", "batch_target")
 
 
 def fake_units(n: int, seed: int = 20261102) -> list[dict]:
@@ -50,7 +52,11 @@ def fake_units(n: int, seed: int = 20261102) -> list[dict]:
                 used.add(name)
                 break
         level = rnd.choices(_LEVELS, weights=[62, 17, 12, 9])[0]
-        status = rnd.choices(_STATUSES, weights=[80, 4, 5, 4, 2, 5])[0]
+        status = rnd.choices(_STATUSES, weights=[80, 4, 5, 4, 2, 5, 4])[0]
+        # 复合目录（整目录待改判）：语义字段按 planner 产物同构补齐
+        composite = status == "batch_target"
+        if composite:
+            level = "composite"
         if level == "fallback":
             lib, lib_root = "兜底库", r"I:\媒体库\未分类"
         else:
@@ -58,7 +64,8 @@ def fake_units(n: int, seed: int = 20261102) -> list[dict]:
             lib_root = rf"I:\媒体库\{lib}"
         genre = lib if lib != "兜底库" else rnd.choice(GENRES)
         conf = {"rule": "high", "learned": "medium",
-                "plot": rnd.choice(["medium", "low"]), "fallback": "low"}[level]
+                "plot": rnd.choice(["medium", "low"]), "fallback": "low",
+                "composite": "low"}[level]
         files = rnd.randint(1, 14)
         # 与 planner 产物同构：部分行带女优段（「库\女优\影片」三层布局）
         actress = rnd.choice(["篠田ゆあ", "伊藤舞雪", "#未知女优", None, None])
@@ -79,13 +86,19 @@ def fake_units(n: int, seed: int = 20261102) -> list[dict]:
             "level": level,
             "confidence": conf,
             "genres": (genre,),
+            "composite": composite,
             "evidence": [e.format(g=genre, lib=lib) for e in
                          rnd.sample(_EVIDENCE[level], rnd.randint(1, 2))],
             "status": status,
             "notes": [],
-            "default_selected": status == "ready" and (
+            "default_selected": not composite and status == "ready" and (
                 level == "rule" or (level == "learned" and conf == "medium")),
             "file_count": files,
             "total_size": rnd.randint(700, 42_000) * 1_048_576,
         })
+    if units and not any(u["status"] == "batch_target" for u in units):
+        # 演示必须有一条整目录待改判复合行（样式走查/批量改判入口）
+        u = units[-1]
+        u.update(status="batch_target", level="composite", composite=True,
+                 confidence="low", default_selected=False)
     return units

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -538,12 +539,32 @@ class PlanTab(QWidget):
     def _show_row_menu(self, u: dict, global_pos) -> None:
         menu = QMenu(self)
         act_open = menu.addAction("打开影片所在目录")
-        self._handle_row_menu_choice(u, menu.exec(global_pos), act_open)
+        act_batch = menu.addAction("批量改判目标库…")
+        chosen = menu.exec(global_pos)
+        lib = None
+        if chosen is act_batch:
+            # 候选库 = 配置全量 ∪ 计划内命中；首项为空选项（撤销改判）。
+            items = ["撤销改判（回到规则判定）"] + override_libs(
+                self._rows, self._config_libs())
+            picked, ok = QInputDialog.getItem(
+                self, "批量改判目标库", "选择目标库（作用于当前勾选的全部影片）",
+                items, 0, False)
+            if not ok:
+                return
+            lib = None if picked == items[0] else picked
+        self._handle_row_menu_choice(u, chosen, act_open, act_batch, lib)
 
-    def _handle_row_menu_choice(self, u: dict, chosen, act_open) -> None:
-        """菜单选择落点（纯逻辑，可单测）：选中「打开影片所在目录」才开。"""
+    def _handle_row_menu_choice(self, u: dict, chosen, act_open,
+                                act_batch=None, lib=None) -> None:
+        """菜单选择落点（纯逻辑，可单测）：打开目录 / 批量改判目标库。"""
         if chosen is act_open:
             self._open_source_dir(u)
+        elif act_batch is not None and chosen is act_batch:
+            if self.vm is None:
+                return
+            ids = set(self.vm.checked)
+            n = self.vm.set_override_many(ids, lib)
+            self.toast(f"批量改判已生效 {n} 部")
 
     def _open_source_dir(self, u: dict) -> None:
         """目录型单元=目录本身；散装文件单元=其父目录（所在目录语义）。

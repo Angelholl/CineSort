@@ -249,6 +249,15 @@ class PlanViewModel:
         else:
             self.overrides.pop(unit_id, None)
 
+    def set_override_many(self, unit_ids, lib: str | None) -> int:
+        """批量改判：对给定 id 集合写/清 override，返回生效条数。"""
+        n = 0
+        for uid in unit_ids:
+            if uid in self._by_id:
+                self.set_override(uid, lib)
+                n += 1
+        return n
+
     def effective_target_lib(self, unit: dict) -> str:
         return self.overrides.get(unit["id"]) or unit["target_lib"]
 

@@ -576,3 +576,52 @@ def test_batch_target_badge_mapped(qapp):
         assert item.text() == "整目录待改判"
     finally:
         tab.deleteLater()
+
+
+def test_row_menu_batch_choice_calls_set_override_many(qapp):
+    """纯逻辑落点：选中「批量改判目标库…」→ 对当前勾选集批量写/清 override（卡 T12b）。"""
+    tab = PlanTab(_PlanStubState(), None, toast=lambda m: None)
+    calls: list[tuple[set[str], str | None]] = []
+
+    class VmStub:
+        def __init__(self):
+            self.checked = {"A", "B"}
+
+        def set_override_many(self, ids, lib):
+            calls.append((set(ids), lib))
+            return len(ids)
+
+    tab.vm = VmStub()
+    toasts: list[str] = []
+    tab.toast = toasts.append
+    act_open, act_batch = object(), object()
+    unit = {"src": "D:/x", "kind": "dir"}
+    tab._handle_row_menu_choice(unit, chosen=act_batch, act_open=act_open,
+                                act_batch=act_batch, lib="科幻")
+    tab._handle_row_menu_choice(unit, chosen=act_batch, act_open=act_open,
+                                act_batch=act_batch, lib=None)
+    assert calls == [({"A", "B"}, "科幻"), ({"A", "B"}, None)]
+    assert toasts == ["批量改判已生效 2 部", "批量改判已生效 2 部"]
+    tab.deleteLater()
+
+
+def test_demo_units_include_batch_target_composite_row():
+    """演示数据自带整目录待改判复合行；徽章文案沿用 planner.STATUS_LABELS（卡 T12b）。"""
+    from app.core.planner import ST_BATCH, STATUS_LABELS
+    from app.ui import table_cells
+
+    rows = fake_units(40, seed=7)
+    batch_rows = [u for u in rows if u["status"] == ST_BATCH]
+    assert batch_rows, "demo 数据应含 batch_target 行"
+    assert all(u.get("composite") is True for u in batch_rows)
+    assert all(u["level"] == "composite" for u in batch_rows)
+    assert all(u["default_selected"] is False for u in batch_rows)
+    assert STATUS_LABELS[ST_BATCH] == "整目录待改判"
+
+    tab = PlanTab(None, batch_rows[:1], toast=lambda m: None)
+    try:
+        item = tab.table.item(0, table_cells.COL_STATUS)
+        assert item is not None
+        assert item.text() == STATUS_LABELS[ST_BATCH] == "整目录待改判"
+    finally:
+        tab.deleteLater()

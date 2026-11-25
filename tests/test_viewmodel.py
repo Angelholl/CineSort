@@ -212,6 +212,24 @@ def test_override_set_clear_and_effective_target(units):
     assert model.overrides == {}
 
 
+def test_set_override_many_counts_known_ids_and_skips_unknown(units):
+    """批量改判：仅对存在的 id 写 override，返回生效条数（卡 T12b）。"""
+    model = vm.PlanViewModel(units)
+    n = model.set_override_many(["A 规则", "不存在", "C 自学"], "喜剧")
+    assert n == 2
+    assert model.overrides == {"A 规则": "喜剧", "C 自学": "喜剧"}
+    assert model.effective_target_lib(model.unit("B 摘要")) == "动作"
+
+
+def test_set_override_many_none_clears_existing(units):
+    """批量撤销：lib=None 复用 set_override 的清除语义（卡 T12b）。"""
+    model = vm.PlanViewModel(units)
+    model.set_override("A 规则", "喜剧")
+    assert model.set_override_many(["A 规则", "B 摘要"], None) == 2
+    assert model.overrides == {}
+    assert model.effective_target_lib(model.unit("A 规则")) == "科幻"
+
+
 # ---------------------------------------------------------------- 徽章与文案
 
 def test_status_badge_uses_planner_labels_not_a_private_copy():
