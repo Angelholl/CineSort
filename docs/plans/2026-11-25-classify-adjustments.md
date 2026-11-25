@@ -76,6 +76,8 @@ python tools/replay_metrics.py <config.toml> [--strategy smart|smart_weighted|..
 
 T-01 实测（2026-11-26）：实机 `config.toml`（strategy=smart，源池 `E:\已刮削\待整理` 可达）只读重放；`--json` 同值复核；未写 plan.json / learned.json。
 
+T-03 C-1 后实测（2026-11-26，owner 授权主审按拍板原则执行两组序重排：题材定位型在前、行为/元数据泛用型靠后，组内保持原相对序；config.toml 已备份 .bak-20261126）：门槛核对 decl_order=0 ✓、votes=0 ✓（代码保证生效于全表填充）、最大占比 19.0%→**22.3%**（≤41% 基线，远离 58% 失败方向；新头名 人妻=47/211，次位 中出=31、乱交=24、痴女=15）、默认勾选 **181 无变动**、自动生效/票数闭合=0 ✓。config 哈希变化 → plan.json freshness 失效，实机需重新扫描（owner 亲为）。
+
 只读承诺：重放全程不写 plan.json / learned.json（build_plan 不 save；工具无任何 save 调用）。
 
 ## 5 任务总览（每任务=一卡）
