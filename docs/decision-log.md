@@ -195,3 +195,12 @@
 - 隐私纪律：一切测量/预判输出不得含完整文件名/女优名/路径成分；云 VLM 默认关闭；预判结果如立项须标注来源与置信、默认不勾选。
 - 测量结果补录（2026-11-13，卡 A1 `b22d926`，opencode 执行 + 主审验收链亲跑复核：ruff 改动文件 0 项且全仓 All checks passed / 定向 10 passed / 全量 **347 passed** / 冒烟复现 / JSON 键清单核对无文件名泄漏）：`待整理` 池当日快照实测 **production 单元 243 = 深查视频 243，无 NFO 残差 0**；伴随字幕 0（文本/位图皆无）；番号可提取 163/243（无分片需去重）。结论：D-20261110-01 更正成立，本库无 NFO 残差已清零，**Step B/C 对本库当前无立项对象**；四层消歧设计与 [HIGH_RISK_OBJECTION] 放行条件归档备用，未来出现新残差片源时再议。注意池为活水（整理进行中），数字仅代表 2026-11-13 快照。
 
+
+## D-20261125-01 老 Task-12 批量改判 UI 补齐（owner 令"现在补齐，然后 push 发版"）
+- 锚点重核结论：押后卡 Task-04/05（freshness/preflight/jobs 放行 ST_BATCH+override）已被 v0.6.1 的 `UNLOCKABLE_STATUSES=(ST_BATCH, ST_MULTI)` 白名单收敛（10cebda/fbb66fa）完整覆盖——planner:244、preflight:84/:123、jobs:149-153、viewmodel:115/230 五处门全部就位，无需重做；实际残留仅老 Task-12 的 UI 面。
+- 拆两卡串行执行（同工作树 ≤1 卡）：`card-20261125-batch-badge.md`（T12a 徽章链）与 `card-20261125-batch-rejudge-ui.md`（T12b 批量改判：viewmodel `set_override_many` + 右键菜单「批量改判目标库…」作用于当前勾选集 + demo 复合行）。
+- 通道偏差与 owner 扩令：T12a 系主审失误未跑 `dispatch_guard --check` 即默认派 ZCode Agent（该卡属 hy4 窗口白名单卡型「UI 静态文本微调」，应派 opencode）；卡在飞后按纪律不中断，跑完验收。T12b 派卡前经 owner AskUserQuestion 扩白名单（新交互功能卡暂入 opencode/hy4-flash-free，窗口期 2026-12-02 前有效），guard 通过、artifacts 台账已记、契约无 flags、逐行 diff 审通过。到期（2026-12-02 24:00）后本扩令自动作废，恢复白名单口径。
+- T12a 验收：执行者 57ebb50 先红后绿；其卡外发现经主审复核属实——`status_badge` 直出原始状态码，`BADGE_COLORS["batch"]` 实际不被消费，配色落 DIM 灰。主审一行修正 7d5ba15 补 `"batch_target": WARN` 别名键并钉真实渲染链断言；补记已写入卡面验收补记。
+- T12b 验收：713206e；ruff 全仓 0 项、定向 71 passed、全量 **352 passed**（基线 348 只增不减）、collect-only 一致；离屏冒烟 demo 40 行含 2 复合行、批量改判 28 部生效后 `can_apply` 转 True；离屏目验复合行徽章呈警示橙描边。
+- code-review 双轴（fixed point 58517b8）：Standards 无硬违规，5 条判断性提示（1/2 函数签名多模式与 None 双语义、3 demo 五处同步的 shotgun 苗头、4 徽章键双命名空间、5 vm 为 None 时批量项静默返回）——1/2/4/5 记账不阻塞，0 勾选时 toast「已生效 0 部」为可接受行为；Spec 无缺失，theme 补键确认为有依据卡外修正（已补记卡面）。
+- 老分类质量计划自此全部收口：C1-C9 + 老 Task-11（=嵌套计划 T04/05 白名单收敛）+ 老 Task-12（=T12a/b）+ 老 Task-13（被嵌套计划 T08 取代）；嵌套计划仅余 demo 样式走查类遗留给后续实机验证。

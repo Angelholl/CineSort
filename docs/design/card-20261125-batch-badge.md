@@ -40,3 +40,13 @@ python -m pytest -q                            # 全量，当前基线 347 passe
   `python C:/Users/57850/.zcode/tools/pointer_tools.py` 的
   pointerize/read_pointer/read_diff_only，禁止整读文件全文。
 - 执行者只 commit 不 push；卡外问题即停待裁决。
+
+## 验收补记（2026-11-25 主审）
+
+- 渲染链实测 `status_badge`（viewmodel.py:55-57）直出原始状态码作徽章键，
+  `"batch"` 键实际不会被消费；`batch_target` 落 DIM 兜底灰。验收期主审修正
+  7d5ba15：BADGE_COLORS 补 `"batch_target": WARN` 别名键并钉回归测试——
+  超卡面第 3 条范围，经复核为必要修正（code-review Spec 轴亦确认为
+  「有依据的卡外修正」）。
+- 遗留记账：徽章键存在「状态码/徽章键」双命名空间，长期可统一单一键空间
+  消灭此类漏登记（Standards 轴判断性提示，不阻塞本卡）。
