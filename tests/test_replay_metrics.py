@@ -1,0 +1,144 @@
+"""离线重放四指标量尺测试（D-20261125-05 Task-01）。"""
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+from conftest import build_env, make_movie
+
+from app.core.config import load_config
+from app.core.learned import record as learned_record
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _replay_module():
+    """importlib 挂载范式同 test_measure_no_nfo.py:8-14；延后到用例内以逐项报红。"""
+    spec = importlib.util.spec_from_file_location(
+        "replay_metrics", ROOT / "tools" / "replay_metrics.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["replay_metrics"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_replay_writes_nothing(tmp_path):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path)
+    make_movie(tmp_path / "src", "a", genres=("动作",))
+    make_movie(tmp_path / "src", "b", genres=("科幻",))
+    cfg = load_config(cfg_path)
+    runtime = cfg.runtime_dir
+    names = ("plan.json", "learned.json")
+
+    def snap():
+        return {n: (runtime / n).read_bytes() if (runtime / n).is_file() else None
+                for n in names}
+
+    before = snap()
+    mod.replay_metrics(cfg)
+    assert snap() == before
+
+
+def test_replay_auto_effective_matches_plan(tmp_path):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path)
+    make_movie(tmp_path / "src", "opera", genres=("戏曲",))
+    cfg = load_config(cfg_path)
+    # 人工票一次记 2 票，min_votes=2 → 自学习级自动生效且默认勾选。
+    learned_record(cfg.runtime_dir, ["戏曲"], "科幻", manual=True)
+
+    result = mod.replay_metrics(cfg)
+    plan = mod.build_replay_plan(cfg)
+    learned_defaults = sum(1 for u in plan["units"]
+                           if u["level"] == "learned" and u["default_selected"])
+    assert result["auto_effective_units"] == 1 == learned_defaults
+
+
+def test_replay_winner_basis_detects_votes(tmp_path):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path, overrides={
+        "genre_priority": [],
+        "genre_aliases": {"喜剧": "科幻"},
+    })
+    make_movie(tmp_path / "src", "comedy", genres=("喜剧", "动作"))
+    cfg = load_config(cfg_path)
+    for _ in range(4):
+        learned_record(cfg.runtime_dir, ["喜剧"], "动作", manual=False)
+
+    result = mod.replay_metrics(cfg)
+    assert result["winner_basis"]["votes"] >= 1
+
+
+def test_replay_default_selected_count(tmp_path):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path)
+    make_movie(tmp_path / "src", "a", genres=("动作",))
+    make_movie(tmp_path / "src", "b", genres=("科幻",))
+    cfg = load_config(cfg_path)
+
+    result = mod.replay_metrics(cfg)
+    plan = mod.build_replay_plan(cfg)
+    assert result["default_selected"] == sum(
+        1 for u in plan["units"] if u["default_selected"])
+
+
+def test_replay_closure_flags_manual_leak(tmp_path):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path)
+    make_movie(tmp_path / "src", "a", genres=("动作",))
+    make_movie(tmp_path / "src", "b", genres=("科幻",))
+    cfg = load_config(cfg_path)
+    plan = mod.build_replay_plan(cfg)
+    learned_record(cfg.runtime_dir, ["动作"], "动作", manual=False)
+    learned_record(cfg.runtime_dir, ["戏曲"], "科幻", manual=False)  # 历史票目
+
+    unit = plan["units"][0]
+    sid = "20261126T000000-0001"
+    jdir = cfg.runtime_dir / "journals"
+    jdir.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"type": "header", "kind": "apply", "sid": sid,
+         "ts": "2026-11-26T00:00:00+08:00", "meta": {"plan_id": plan["plan_id"]}},
+        {"type": "done", "ts": "2026-11-26T00:01:00+08:00", "unit_id": unit["id"],
+         "src_dir": unit["src"], "target_lib": unit["target_lib"],
+         "title": unit["title"], "manual": True,
+         "orig_lib": unit["target_lib"], "provider": "tmdb:1"},
+    ]
+    (jdir / f"apply-{sid}.jsonl").write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+        encoding="utf-8")
+
+    result = mod.replay_metrics(cfg)
+    assert result["vote_closure_inconsistencies"] == 1
+    detail = mod._closure(cfg, plan)
+    assert detail["legacy_pairs"] == [("戏曲", "科幻")]
+
+
+def test_replay_strategy_override(tmp_path, capsys, monkeypatch):
+    mod = _replay_module()
+    cfg_path = build_env(tmp_path)
+    make_movie(tmp_path / "src", "a", genres=("动作",))
+    make_movie(tmp_path / "src", "b", genres=("科幻",))
+    before = cfg_path.read_bytes()
+
+    seen = {}
+    real_build = mod.build_replay_plan
+
+    def spy(cfg, strategy=None):
+        seen["strategy"] = strategy
+        return real_build(cfg, strategy)
+
+    monkeypatch.setattr(mod, "build_replay_plan", spy)
+    assert mod.main([str(cfg_path), "--strategy", "genre_only", "--json"]) == 0
+    assert seen["strategy"] == "genre_only"
+    out = json.loads(capsys.readouterr().out)
+    assert set(out) == {"auto_effective_units", "winner_basis", "default_selected",
+                        "vote_closure_inconsistencies", "top_target_share"}
+
+    cfg = load_config(cfg_path)
+    plan = mod.build_replay_plan(cfg, strategy="genre_only")
+    assert plan["strategy"] == "genre_only"
+    assert {u["level"] for u in plan["units"]} <= {"rule", "fallback"}
+    assert cfg_path.read_bytes() == before
