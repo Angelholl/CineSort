@@ -68,11 +68,13 @@ python tools/replay_metrics.py <config.toml> [--strategy smart|smart_weighted|..
 
 | 指标 | 定义 | 本轮基线（T-01 实测填入） | 认可方向 |
 |---|---|---|---|
-| 自动生效单元数 | level=learned 且 default_selected 的单元数 | （实测） | A-2 后恒为 **0** |
-| 多候选胜出依据分布 | 映射候选>1 的单元按 {priority, plot, decl_order, votes, unexpected} 归类 | （实测） | A-2 后 **votes=0**；C-1 后 decl_order→0 |
-| 默认勾选数 | default_selected 单元数 | 分析口径 **157**（实机 smart） | E 上线后 smart_weighted 重放 **≈157**（诚实化失败模式=182–199，禁出现） |
-| 票数闭合不一致对数 | 留痕后会话可触及、且票数与会话推演不符的 (题材键, 库) 对 | （实测） | 只减不增；A-1 后恒为 0 |
-| 最大目标库占比（辅） | plan 内最大 target_lib 单元占比（C-1 验收用） | 分析口径 **41%** | C-1 后不得高于 41%（58% 方向即回退重排） |
+| 自动生效单元数 | level=learned 且 default_selected 的单元数 | **0** | A-2 后恒为 **0** |
+| 多候选胜出依据分布 | 映射候选>1 的单元按 {priority, plot, decl_order, votes, unexpected} 归类 | priority=152、plot=0、decl_order=0、votes=0、unexpected=0 | A-2 后 **votes=0**；C-1 后 decl_order→0 |
+| 默认勾选数 | default_selected 单元数 | **181**（实机 smart；分析口径 157） | E 上线后 smart_weighted 重放 **≈157**（诚实化失败模式=182–199，禁出现） |
+| 票数闭合不一致对数 | 留痕后会话可触及、且票数与会话推演不符的 (题材键, 库) 对 | **0** | 只减不增；A-1 后恒为 0 |
+| 最大目标库占比（辅） | plan 内最大 target_lib 单元占比（C-1 验收用） | **19.0%**（40/211；分析口径 41%） | C-1 后不得高于 41%（58% 方向即回退重排） |
+
+T-01 实测（2026-11-26）：实机 `config.toml`（strategy=smart，源池 `E:\已刮削\待整理` 可达）只读重放；`--json` 同值复核；未写 plan.json / learned.json。
 
 只读承诺：重放全程不写 plan.json / learned.json（build_plan 不 save；工具无任何 save 调用）。
 
