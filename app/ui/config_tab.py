@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -36,9 +37,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.config import ConfigError
+from ..core.alias_scan import scan_alias_candidates
+from ..core.config import ConfigError, load_config
 from ..state import AppState
 from . import theme
+from .alias_scan_dialog import AliasScanDialog
 from .config_viewmodel import describe_to_form, form_to_body, learned_rows
 
 DEMO_TEXT = "演示模式（假数据），不连接真实配置"
@@ -100,6 +103,11 @@ class ConfigTab(QWidget):
         self.f_weak_alias_text.setFixedHeight(72)
         self.f_weak_alias_text.setPlaceholderText(
             "每行：别名=标准库名（弱信号：唯一命中时低置信、默认不勾选）")
+        self.btn_alias_scan = QPushButton("🔍 别名扫描分析")
+        self.btn_alias_scan.setToolTip(
+            "扫描源目录影片：汇总 NFO 未映射题材频次与影片名词频，"
+            "勾选候选项并指定目标库后追加进别名/弱别名表（不自动落盘）")
+        self.btn_alias_scan.clicked.connect(self._on_alias_scan)
 
         rows = [
             ("源目录", self._path_row(self.f_source_root, "选择源目录",
@@ -147,7 +155,7 @@ class ConfigTab(QWidget):
              ("题材优先级表：影片命中多个已映射题材时排前面的优先。"
              "建议「身份类」题材排前、「高频通用」题材排后，否则通用题材会把影片"
              "成批吸走。留空 = 无显式优先级")),
-            ("别名表", self.f_alias_text,
+            ("别名表", self._hbox(self.f_alias_text, self.btn_alias_scan),
              ("每行一条：别名=标准库名。NFO 题材写法→标准库名；匹配不区分大小写、"
              "全半角与多余空格；不做繁简转换，繁简两种写法各写一条。"
              "别名覆盖度直接决定规则命中率")),
@@ -342,6 +350,7 @@ class ConfigTab(QWidget):
                   self.f_title_min_score, self.f_learning_enabled,
                   self.f_learning_min_votes, self.f_priority_text,
                   self.f_alias_text, self.f_weak_alias_text, self.lib_table,
+                  self.btn_alias_scan,
                   self.btn_save,
                   self.btn_reload, self.btn_browse_source,
                   self.btn_browse_fallback, self.btn_browse_staging):
@@ -449,6 +458,49 @@ class ConfigTab(QWidget):
         if row >= 0:
             self.lib_table.removeRow(row)
             self._mark_dirty()
+
+    # ------------------------------------------------------------ 别名扫描分析
+
+    def _on_alias_scan(self) -> None:
+        """别名扫描分析（owner 2026-11-25）：扫描→频次榜→人工指定库→追加编辑框。"""
+        if self.state is None:
+            self.toast(DEMO_TEXT)
+            return
+        try:
+            cfg = load_config(self.state.config_path)
+        except ConfigError as exc:
+            self.toast(f"配置无效，无法扫描分析：{exc}")
+            return
+        cursor = QApplication.overrideCursor()
+        if not cursor:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            candidates = scan_alias_candidates(cfg)
+        finally:
+            if QApplication.overrideCursor():
+                QApplication.restoreOverrideCursor()
+        names = []
+        for r in range(self.lib_table.rowCount()):
+            it = self.lib_table.item(r, 0)
+            if it is not None and it.text():
+                names.append(it.text())
+
+        AliasScanDialog(candidates, names, self._append_alias_candidates,
+                        self).exec()
+
+    def _append_alias_candidates(self, kind: str, lines: list[str]) -> None:
+        """对话框回调：候选行追加进别名/弱别名编辑框（去重，只改文本不落盘）。"""
+        box = self.f_alias_text if kind == "strong" else self.f_weak_alias_text
+        existing = set(box.toPlainText().splitlines())
+        new = [l for l in lines if l not in existing]
+        for l in new:
+            box.appendPlainText(l)
+        if new:
+            self._mark_dirty()
+            self.toast(f"已追加 {len(new)} 条到{'别名表' if kind == 'strong' else '弱别名表'}，"
+                       "点「保存配置」后才落盘")
+        else:
+            self.toast("所选候选项均已在表中，未追加")
 
     # ------------------------------------------------------------ 保存
 
