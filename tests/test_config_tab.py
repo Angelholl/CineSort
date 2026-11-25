@@ -406,6 +406,23 @@ def test_scan_libraries_skips_existing_paths(qapp, monkeypatch, tmp_path):
     tab.deleteLater()
 
 
+def test_scan_libraries_all_exists_stays_clean(qapp, monkeypatch, tmp_path):
+    """全部子文件夹均已登记时：不置脏、不插行，仅 toast 汇总。"""
+    from PySide6.QtWidgets import QFileDialog
+    (tmp_path / "科幻").mkdir()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path))
+    toasts = []
+    tab = ConfigTab(StubState(full_describe()), toast=toasts.append)
+    tab._add_library_row(["科幻", str(tmp_path / "科幻"), "科幻", ""])
+    tab._dirty = False
+    tab.btn_scan_libraries.click()
+    assert tab.lib_table.rowCount() == 3
+    assert tab._dirty is False
+    assert any("新增 0" in m and "跳过 1" in m for m in toasts)
+    tab.deleteLater()
+
+
 def test_scan_libraries_cancel_and_empty_dir(qapp, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QFileDialog
     monkeypatch.setattr(QFileDialog, "getExistingDirectory",

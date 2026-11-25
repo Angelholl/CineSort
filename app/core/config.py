@@ -274,22 +274,23 @@ def load_config(path: Path | str) -> Config:
         lib.path = lib.path.resolve()
         _require_dir(lib.path, f"媒体库[{lib.name}]的 path", warnings)
 
-    all_roots = [("source_root", source_root)] + [
-        (f"媒体库[{name}]", lib.path) for name, lib in libraries.items()
-    ] + [("fallback_path", fallback_path)]
+    all_roots = [("source", "source_root", source_root)] + [
+        ("lib", f"媒体库[{name}]", lib.path) for name, lib in libraries.items()
+    ] + [("fallback", "fallback_path", fallback_path)]
     for i in range(len(all_roots)):
         for j in range(i + 1, len(all_roots)):
-            ta, pa = all_roots[i]
-            tb, pb = all_roots[j]
+            ka, ta, pa = all_roots[i]
+            kb, tb, pb = all_roots[j]
             # owner 2026-11-25 确认：source_root 位于媒体库内部是真实合法场景
-            # （如"已删除待整理"目录放在媒体库内），放行为警告；反向（媒体库
-            # 位于源内）仍硬拦，避免库内容被当作待整理源扫描。
-            if ta == "source_root" and tb.startswith("媒体库") \
-                    and is_sub_path(pa, pb):
+            # （如"已删除待整理"目录放在媒体库内），放行为警告；同目录仍硬拦；
+            # 反向（媒体库位于源内）仍硬拦，避免库内容被当作待整理源扫描。
+            if (ka != "source" or kb != "lib") or pa == pb:
+                _check_overlap(pa, pb, ta, tb)
+            elif is_sub_path(pa, pb):
                 warnings.append(
                     f"source_root（{pa}）位于 {tb}（{pb}）内部：请留意扫描范围")
-                continue
-            _check_overlap(pa, pb, ta, tb)
+            else:
+                _check_overlap(pa, pb, ta, tb)
 
     if staging_dir is not None:
         if is_sub_path(staging_dir, source_root):

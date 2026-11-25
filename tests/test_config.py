@@ -113,6 +113,17 @@ def test_source_inside_library_save_after_dropping_library(tmp_path):
     assert set(load_config(cfg_path).libraries) == set()   # 已真正落盘
 
 
+def test_source_same_dir_as_library_still_rejected(tmp_path):
+    # 护栏钉：放行仅限"嵌套内部"，source_root 与库同目录（相等）仍硬拦
+    same = tmp_path / "libs" / "已删除"
+    same.mkdir(parents=True)
+    lib = [{"name": "已删除", "path": str(same),
+            "keywords": [], "keywords_weighted": {}}]
+    with pytest.raises(ConfigError):
+        load_config(build_env(tmp_path, overrides={
+            "source_root": str(same), "libraries": lib, "genre_priority": []}))
+
+
 def test_nested_libraries_rejected(tmp_path):
     outer = tmp_path / "libA"
     inner = outer / "sub"

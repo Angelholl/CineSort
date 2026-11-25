@@ -438,7 +438,8 @@ class ConfigTab(QWidget):
                 continue
             self._add_library_row([p.name, sp, p.name, ""])
             added += 1
-        self._mark_dirty()
+        if added:
+            self._mark_dirty()
         self.toast(f"扫描完成：新增 {added} 个库，跳过 {len(subs) - added} 个已存在")
 
     def _del_library_row(self) -> None:
