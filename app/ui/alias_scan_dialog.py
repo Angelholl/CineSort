@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 
@@ -57,6 +58,26 @@ class AliasScanDialog(QDialog):
         self.tbl_tokens = self._make_table(candidates.get("tokens") or [])
         self.tabs.addTab(self.tbl_genres, "未映射题材榜")
         self.tabs.addTab(self.tbl_tokens, "影片名词榜")
+        # D 提升建议（A-1 门控）：真实题材信号票目，空列表以页内空态上线。
+        self.promo_page = QWidget()
+        promo_layout = QVBoxLayout(self.promo_page)
+        self.tbl_promotions = self._make_promotion_table(
+            candidates.get("promotions") or [])
+        promo_layout.addWidget(self.tbl_promotions)
+        self.lbl_promotions_empty = QLabel(
+            "当前无满足条件的提升建议（真实题材信号票数达阈值且未被别名表覆盖）")
+        self.lbl_promotions_empty.setWordWrap(True)
+        self.lbl_promotions_empty.setVisible(self.tbl_promotions.rowCount() == 0)
+        promo_layout.addWidget(self.lbl_promotions_empty)
+        promo_ops = QHBoxLayout()
+        self.btn_promote_strong = QPushButton("提升为强别名")
+        self.btn_promote_weak = QPushButton("提升为弱别名")
+        self.btn_promote_strong.clicked.connect(lambda: self._stage_promotions("strong"))
+        self.btn_promote_weak.clicked.connect(lambda: self._stage_promotions("weak"))
+        promo_ops.addWidget(self.btn_promote_strong)
+        promo_ops.addWidget(self.btn_promote_weak)
+        promo_layout.addLayout(promo_ops)
+        self.tabs.addTab(self.promo_page, "提升建议")
         root.addWidget(self.tabs, 1)
 
         row = QHBoxLayout()
@@ -120,6 +141,49 @@ class AliasScanDialog(QDialog):
             item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore[attr-defined]
             t.setItem(r, 1, item)
         return t
+
+    def _make_promotion_table(self, rows: list[dict]) -> QTableWidget:
+        """D 提升建议表：题材/目标库/票数/人工次数（行来自 promotion_candidates）。"""
+        t = QTableWidget(0, 4)
+        t.setHorizontalHeaderLabels(["题材", "目标库", "票数", "人工次数"])
+        t.setSelectionBehavior(QAbstractItemView.SelectRows)  # type: ignore[attr-defined]
+        t.setSelectionMode(QAbstractItemView.ExtendedSelection)  # type: ignore[attr-defined]
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)  # type: ignore[attr-defined]
+        t.verticalHeader().setVisible(False)
+        t.setWordWrap(False)
+        t.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Stretch)  # type: ignore[attr-defined]
+        for row in rows:
+            r = t.rowCount()
+            t.insertRow(r)
+            for col, key in enumerate(("genre", "lib", "votes", "manual")):
+                item = QTableWidgetItem(str(row.get(key, "")))
+                if col >= 2:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore[attr-defined]
+                t.setItem(r, col, item)
+        return t
+
+    def _stage_promotions(self, kind: str) -> None:
+        """提升建议 → 待保存清单（候选=题材原样、目标库=行内 lib，不走目标库下拉）。"""
+        existing = set()
+        for r in range(self.tbl_staged.rowCount()):
+            it0 = self.tbl_staged.item(r, 0)
+            it1 = self.tbl_staged.item(r, 1)
+            if it0 is not None and it1 is not None:
+                existing.add((it0.text(), it1.text()))
+        for idx in sorted({i.row() for i in self.tbl_promotions.selectedIndexes()}):
+            genre = self.tbl_promotions.item(idx, 0)
+            lib = self.tbl_promotions.item(idx, 1)
+            if not (genre and lib and genre.text() and lib.text()):
+                continue
+            if (genre.text(), lib.text()) in existing:
+                continue
+            r = self.tbl_staged.rowCount()
+            self.tbl_staged.insertRow(r)
+            self.tbl_staged.setItem(r, 0, QTableWidgetItem(genre.text()))
+            self.tbl_staged.setItem(r, 1, QTableWidgetItem(lib.text()))
+            self.tbl_staged.setItem(
+                r, 2, QTableWidgetItem("强" if kind == "strong" else "弱"))
 
     def _current_table(self) -> QTableWidget:
         return (self.tbl_genres if self.tabs.currentWidget() is self.tbl_genres

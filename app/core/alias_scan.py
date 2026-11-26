@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import re
 
+from . import learned as learned_store
 from . import scanner
-from .classifier import map_genres_ex
+from .classifier import covered_keys, map_genres_ex
 from .config import Config
 from .nfo import normalize_key
 
@@ -40,6 +41,33 @@ def name_tokens(name: str) -> list[str]:
     return out
 
 
+def promotion_candidates(learned: dict, cfg: Config) -> list[dict]:
+    """D 提升建议（A-1 门控）：A-1 迁移幸存、票数达标、目标库仍在的真实题材信号。
+
+    过滤 covered_keys（别名表/库名已覆盖）、悬空库与票数不足者；只读票目，
+    不写盘。行字段 {genre, key, lib, votes, manual}，按 (-votes, genre) 排序。
+    """
+    bar = max(cfg.learning.min_votes, 1)
+    covered = covered_keys(cfg)
+    out: list[dict] = []
+    for key, entry in ((learned or {}).get("entries") or {}).items():
+        if normalize_key(key) in covered:
+            continue
+        e = entry or {}
+        genre = e.get("display") or key
+        for lib, info in (e.get("libs") or {}).items():
+            if lib not in cfg.libraries:
+                continue
+            detail = info or {}
+            votes = detail.get("votes", 0)
+            if votes < bar:
+                continue
+            out.append({"genre": genre, "key": key, "lib": lib,
+                        "votes": votes, "manual": detail.get("manual", 0)})
+    out.sort(key=lambda r: (-r["votes"], r["genre"]))
+    return out
+
+
 def scan_alias_candidates(cfg: Config) -> dict:
     """扫描源目录，返回别名候选榜与审计摘要（D-20261109-01 审计方案工具化）：
 
@@ -47,7 +75,8 @@ def scan_alias_candidates(cfg: Config) -> dict:
      "unit_strong_hit": int,         # 至少一个强命中库的单元数
      "unit_weak_only": int,          # 仅弱命中的单元数
      "genres": [(题材原样, 次数), ...]  # 未映射题材，按 normalize_key 归组计频
-     "tokens": [(词, 次数), ...]}       # 影片名词频，casefold 归组、原样展示
+     "tokens": [(词, 次数), ...],      # 影片名词频，casefold 归组、原样展示
+     "promotions": [行, ...]}          # D 提升建议（只读 learned，空态上线）
     两个榜均按次数降序、同次数按名称升序。
     """
     units, _ = scanner.scan_source_root(cfg)
@@ -90,6 +119,7 @@ def scan_alias_candidates(cfg: Config) -> dict:
         "unit_weak_only": weak_only,
         "genres": _sorted(genre_groups),
         "tokens": _sorted(token_groups),
+        "promotions": promotion_candidates(learned_store.load(cfg.runtime_dir), cfg),
     }
 
 

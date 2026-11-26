@@ -90,3 +90,73 @@ def test_filter_covered_removes_aliased_genres():
     assert [g for g, _ in out["genres"]] == ["西部"]
     assert out["tokens"] == candidates["tokens"]          # 词榜不受影响
     assert out["unit_count"] == 2                          # 其余字段原样保留
+
+
+# ---------------- 提升建议（D：A-1 门控的真实题材信号） ----------------
+
+def test_promotion_candidates_filters(tmp_path):
+    """播票（covered 键 / votes<bar / 悬空库 / 正常票）→ 仅正常票行返回。"""
+    from conftest import seed_learned
+
+    from app.core import learned as learned_store
+    from app.core.alias_scan import promotion_candidates
+    from app.core.config import load_config
+    from app.core.nfo import normalize_key
+
+    cfg = load_config(build_env(tmp_path))
+    seed_learned(cfg.runtime_dir, {
+        "科幻": {"动作": {"votes": 5, "manual": 5}},        # 库名已覆盖 → 剔除
+        "西部": {
+            "动作": {"votes": 1, "manual": 0},              # 1 票 < bar=2 → 剔除
+            "科幻": {"votes": 3, "manual": 0},              # 正常票（同题材不同库）
+        },
+        "悬疑": {"悬空库": {"votes": 4, "manual": 1}},      # 目标库不存在 → 剔除
+        "古装": {"科幻": {"votes": 3, "manual": 1}},        # 正常票
+    })
+    rows = promotion_candidates(learned_store.load(cfg.runtime_dir), cfg)
+    # 字段与排序钉：按 (-votes, genre)，同票时题材升序
+    assert rows == [
+        {"genre": "古装", "key": normalize_key("古装"), "lib": "科幻",
+         "votes": 3, "manual": 1},
+        {"genre": "西部", "key": normalize_key("西部"), "lib": "科幻",
+         "votes": 3, "manual": 0},
+    ]
+
+
+def test_promotion_candidates_empty_store(tmp_path):
+    """learned 空 → []（当前实机 0 对的形态钉）。"""
+    from app.core.alias_scan import promotion_candidates
+    from app.core.config import load_config
+
+    cfg = load_config(build_env(tmp_path))
+    assert promotion_candidates({}, cfg) == []
+    assert promotion_candidates({"entries": {}}, cfg) == []
+
+
+def test_scan_alias_candidates_carries_promotions(tmp_path):
+    """scan 透传 promotions 键；filter_covered 只动 genres、不误伤 promotions。"""
+    from conftest import seed_learned
+
+    from app.core import learned as learned_store
+    from app.core.alias_scan import (
+        filter_covered,
+        promotion_candidates,
+        scan_alias_candidates,
+    )
+    from app.core.config import load_config
+    from app.core.nfo import normalize_key
+
+    make_movie(tmp_path / "src", "西部片", genres=("西部",),
+               extra_files=[("a.mkv", b"V" * 64)])
+    cfg = load_config(build_env(tmp_path))
+    seed_learned(cfg.runtime_dir, {"古装": {"科幻": {"votes": 3, "manual": 1}}})
+    res = scan_alias_candidates(cfg)
+    assert "promotions" in res
+    expected = promotion_candidates(learned_store.load(cfg.runtime_dir), cfg)
+    assert res["promotions"] == expected == [
+        {"genre": "古装", "key": normalize_key("古装"), "lib": "科幻",
+         "votes": 3, "manual": 1},
+    ]
+    out = filter_covered(res, {"西部", normalize_key("古装")})
+    assert out["genres"] == []                             # 已覆盖题材从题材榜剔除
+    assert out["promotions"] == res["promotions"]          # 提升建议键原样保留

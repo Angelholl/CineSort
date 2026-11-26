@@ -6,7 +6,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from app.ui.alias_scan_dialog import AliasScanDialog
 from app.ui.config_tab import ConfigTab
@@ -181,3 +181,36 @@ def test_effective_alias_keys_config_and_pending_lines(qapp, tmp_path):
     assert "西部" in keys and "护士" in keys                # 编辑框待保存行
     assert "" not in keys                                   # 空键剔除
     tab.deleteLater()
+
+
+def test_dialog_promotions_empty_hint(qapp):
+    """D 空态钉：promotions=[] → 第三页空态文案在场。"""
+    dlg = AliasScanDialog({**CANDIDATES, "promotions": []},
+                          ["科幻", "动作"], lambda k, l: None)
+    assert dlg.tabs.count() == 3
+    assert dlg.tabs.tabText(2) == "提升建议"
+    texts = [w.text() for w in dlg.findChildren(QLabel)]
+    assert any("当前无满足条件的提升建议" in t for t in texts)
+    dlg.deleteLater()
+
+
+def test_dialog_promotion_stages_into_list(qapp):
+    """提升按钮接线钉：选中提升建议行 → 清单（表别=强）→ 统一保存回调。"""
+    promos = [
+        {"genre": "古装", "key": "古装", "lib": "科幻", "votes": 3, "manual": 1},
+        {"genre": "西部", "key": "西部", "lib": "动作", "votes": 2, "manual": 0},
+    ]
+    added: list[tuple[str, list[str]]] = []
+    dlg = AliasScanDialog({**CANDIDATES, "promotions": promos},
+                          ["科幻", "动作"],
+                          lambda kind, lines: added.append((kind, lines)))
+    dlg.tabs.setCurrentIndex(2)
+    dlg.tbl_promotions.selectAll()
+    dlg.btn_promote_strong.click()
+    staged = [(dlg.tbl_staged.item(r, 0).text(), dlg.tbl_staged.item(r, 1).text(),
+               dlg.tbl_staged.item(r, 2).text())
+              for r in range(dlg.tbl_staged.rowCount())]
+    assert staged == [("古装", "科幻", "强"), ("西部", "动作", "强")]
+    dlg._save_all()
+    assert added == [("strong", ["古装=科幻", "西部=动作"])]
+    dlg.deleteLater()
