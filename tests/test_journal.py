@@ -1,4 +1,5 @@
 """事务日志测试（评议条件 C6：fsync 落盘 / 容忍末尾半行 / 会话隔离）。"""
+import json
 import time
 
 from conftest import build_env, make_movie
@@ -151,3 +152,103 @@ def test_old_journal_still_readable(tmp_path):
     assert "manual" not in done_entries(old)[0]      # 旧记录不被回填
     new_done = done_entries(log_path)[0]              # 新记录带五字段
     assert new_done["manual"] is False and new_done["orig_lib"] == new_done["target_lib"]
+
+
+# ------------------------------------------------------- B(ii) 跨扫描记忆派生
+def _write_session(journals, kind, sid, ts, meta, dones):
+    """直接落一个 ts 可控的会话 jsonl（不经过真实执行）。"""
+    path = journals / f"{kind}-{sid}.jsonl"
+    lines = [{"type": "header", "kind": kind, "sid": sid, "ts": ts, "meta": meta}]
+    lines.extend(dones)
+    path.write_text(
+        "\n".join(json.dumps(e, ensure_ascii=False) for e in lines) + "\n",
+        encoding="utf-8")
+    return path
+
+
+def _done(unit_id, title, year, target_lib, *, manual=True, traced=True):
+    e = {"type": "done", "ts": "2026-01-01T00:00:02+08:00", "unit_id": unit_id,
+         "src_dir": "x", "dst_dir": "y", "kind": "dir", "target_lib": target_lib}
+    if traced:
+        e.update(title=title, year=year, manual=manual, provider="tmdb:21",
+                 orig_lib="科幻" if manual else target_lib)
+    return e
+
+
+def test_derive_manual_only(tmp_path):
+    """manual=False 的 done 记录不派生（确认执行不构成改判记忆）。"""
+    from app.core.journal import derive_memory
+
+    journals = tmp_path / "journals"
+    journals.mkdir()
+    _write_session(journals, "apply", "20260101T000000-0001",
+                   "2026-01-01T00:00:00+08:00", {},
+                   [_done("A", "Manual Movie", 2021, "动作", manual=False)])
+    assert derive_memory(journals) == {}
+
+
+def test_derive_skips_pre_trace_entries(tmp_path):
+    """留痕前旧格式（done 无 title/manual）跳过不炸，且不影响同会话新记录。"""
+    from app.core.journal import derive_memory
+
+    journals = tmp_path / "journals"
+    journals.mkdir()
+    _write_session(journals, "apply", "20260101T000000-0001",
+                   "2026-01-01T00:00:00+08:00", {},
+                   [_done("OLD", "Old Movie", 2020, "科幻", traced=False),
+                    _done("NEW", "New Movie", 2021, "动作")])
+    mem = derive_memory(journals)
+    assert set(mem) == {("new movie", 2021)}
+
+
+def test_derive_excludes_undone(tmp_path):
+    """风险 #4：apply + 对应 undo 会话 → 被回滚的 unit 不派生。"""
+    from app.core.journal import derive_memory
+
+    journals = tmp_path / "journals"
+    journals.mkdir()
+    apply_name = "apply-20260101T000000-0001.jsonl"
+    _write_session(journals, "apply", "20260101T000000-0001",
+                   "2026-01-01T00:00:00+08:00", {},
+                   [_done("A", "Undone Movie", 2021, "动作")])
+    _write_session(journals, "undo", "20260101T000100-0002",
+                   "2026-01-01T00:01:00+08:00", {"undoes": apply_name},
+                   [{"type": "done", "unit_id": "A", "kind": "dir"}])
+    assert derive_memory(journals) == {}
+
+
+def test_derive_partial_undo(tmp_path):
+    """3 单元 apply、undo 回滚其中 1 个 → 其余 2 个仍派生。"""
+    from app.core.journal import derive_memory
+
+    journals = tmp_path / "journals"
+    journals.mkdir()
+    _write_session(journals, "apply", "20260101T000000-0001",
+                   "2026-01-01T00:00:00+08:00", {},
+                   [_done("A", "Movie One", 2021, "动作"),
+                    _done("B", "Movie Two", 2022, "动作"),
+                    _done("C", "Movie Three", 2023, "动作")])
+    _write_session(journals, "undo", "20260101T000100-0002",
+                   "2026-01-01T00:01:00+08:00",
+                   {"undoes": "apply-20260101T000000-0001.jsonl"},
+                   [{"type": "done", "unit_id": "B", "kind": "dir"}])
+    mem = derive_memory(journals)
+    assert set(mem) == {("movie one", 2021), ("movie three", 2023)}
+
+
+def test_derive_last_session_wins(tmp_path):
+    """同作品多会话不一致时，header ts 较后的会话胜出。"""
+    from app.core.journal import derive_memory
+
+    journals = tmp_path / "journals"
+    journals.mkdir()
+    _write_session(journals, "apply", "20260101T000000-0001",
+                   "2026-01-01T00:00:00+08:00", {},
+                   [_done("A", "Last Win", 2021, "科幻")])
+    _write_session(journals, "apply", "20260102T000000-0002",
+                   "2026-01-02T00:00:00+08:00", {},
+                   [_done("B", "Last Win", 2021, "动作")])
+    mem = derive_memory(journals)
+    assert mem[("last win", 2021)] == {
+        "lib": "动作", "sid": "20260102T000000-0002",
+        "ts": "2026-01-02T00:00:00+08:00"}

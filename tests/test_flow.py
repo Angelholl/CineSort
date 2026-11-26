@@ -620,3 +620,36 @@ def test_apply_journal_trace_flow(env_state):
     st = wait_job(state)
     assert st["status"] == "done", st["log"]
     assert st["result"]["restored"] == 2
+
+
+def test_rescan_new_batch_suggests_memory(tmp_path):
+    """改判执行后，同 title/year 的新副本批次重扫 → 带记忆注记但不 override。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root, "Space War (2021)", title="Space War",
+               genres=("科幻",), plot="太空宇宙飞船大战", tmdb="21")
+    state = AppState(cfg_path)
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    unit = next(u for u in state.plan()["units"] if u["title"] == "Space War")
+
+    # 人工改判「科幻」→「动作」后执行：留痕进入 apply 会话
+    state.start_apply([unit["id"]], {"jellyfin_running", "fallback_ratio"},
+                      {unit["id"]: "动作"})
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+
+    # 新批次：同作品同年份的另一份源副本（不同 provider id）
+    shutil.rmtree(cfg.libraries["动作"].path / "Space War (2021)", ignore_errors=True)
+    make_movie(cfg.source_root, "Space War Copy (2021)", title="Space War",
+               genres=("科幻",), plot="太空宇宙飞船大战", tmdb="99")
+
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    new = next(u for u in state.plan()["units"]
+               if u["id"] == "Space War Copy (2021)")
+    assert any("跨扫描记忆" in n for n in new["notes"])
+    assert new["memory_lib"] == "动作"
+    assert new["target_lib"] != "动作"          # 仅注记建议，不改判定

@@ -1,4 +1,5 @@
 """计划构建 / 冲突三分 / 漂移检测测试（评议条件 C3 / C7）。"""
+import json
 import os
 from pathlib import Path
 
@@ -372,3 +373,55 @@ def test_smart_weighted_default_not_selected(tmp_path):
     assert p["回退低置信 (2021)"]["confidence"] == "low"
     assert p["加权胜出 (2021)"]["default_selected"] is False
     assert p["回退低置信 (2021)"]["default_selected"] is False
+
+
+# ---------------- 卡 Task-09：B(ii) 跨扫描记忆注记（不改判定、不默认勾选） ----------------
+def _seed_memory_session(runtime_dir, *, title, year, lib,
+                         sid="20260101T000000-0001",
+                         ts="2026-01-01T00:00:00+08:00", unit_id="U"):
+    journals = Path(runtime_dir) / "journals"
+    journals.mkdir(parents=True, exist_ok=True)
+    lines = [
+        {"type": "header", "kind": "apply", "sid": sid, "ts": ts, "meta": {}},
+        {"type": "done", "ts": ts, "unit_id": unit_id, "title": title, "year": year,
+         "target_lib": lib, "manual": True, "orig_lib": "科幻", "provider": "tmdb:21"},
+    ]
+    p = journals / f"apply-{sid}.jsonl"
+    p.write_text(
+        "\n".join(json.dumps(e, ensure_ascii=False) for e in lines) + "\n",
+        encoding="utf-8")
+    return p
+
+
+def test_plan_memory_note_no_side_effects(tmp_path):
+    """命中单元只加注记 + memory_lib；target_lib/default_selected 均不变。"""
+    cfg = load_config(build_env(tmp_path))
+    make_movie(cfg.source_root, "Memory Hit (2020)", title="Memory Hit",
+               genres=("科幻",), plot="太空宇宙飞船", tmdb="31")
+    make_movie(cfg.source_root, "No Memory (2020)", title="No Memory",
+               genres=("科幻",), plot="太空宇宙飞船", tmdb="32")
+    baseline = by_id(scan_and_plan(cfg))                 # 注记前基线
+
+    _seed_memory_session(cfg.runtime_dir, title="Memory Hit", year=2020, lib="动作")
+    plan = scan_and_plan(cfg)
+    hit, miss = by_id(plan)["Memory Hit (2020)"], by_id(plan)["No Memory (2020)"]
+
+    assert any("跨扫描记忆" in n for n in hit["notes"])
+    assert hit["memory_lib"] == "动作"
+    assert hit["target_lib"] == baseline["Memory Hit (2020)"]["target_lib"]
+    assert hit["default_selected"] == baseline["Memory Hit (2020)"]["default_selected"]
+    assert "memory_lib" not in miss
+    assert not any("跨扫描记忆" in n for n in miss["notes"])
+
+
+def test_plan_memory_key_normalization(tmp_path):
+    """会话全角片名与新单元半角片名同年份 → normalize_key 归一后命中。"""
+    cfg = load_config(build_env(tmp_path))
+    make_movie(cfg.source_root, "Test Movie (2020)", title="Test Movie",
+               genres=("科幻",), plot="太空宇宙飞船", tmdb="33")
+    _seed_memory_session(cfg.runtime_dir, title="Ｔｅｓｔ Ｍｏｖｉｅ", year=2020, lib="动作")
+
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["Test Movie (2020)"]
+    assert any("跨扫描记忆" in n for n in u["notes"])
+    assert u["memory_lib"] == "动作"

@@ -16,6 +16,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .nfo import normalize_key
+
 _SID_RE = re.compile(r"^(apply|undo)-[0-9T-]{15,}-\d{4}\.jsonl$")
 
 
@@ -135,3 +137,46 @@ def list_sessions(journals_dir: Path) -> list[dict]:
 def done_entries(path: Path) -> list[dict]:
     """可回滚的 done 记录（回滚时逆序执行）。"""
     return [e for e in read_entries(path) if e.get("type") == "done"]
+
+
+def derive_memory(journals_dir: Path) -> dict[tuple[str, int | None], dict]:
+    """从会话日志派生「同作品人工改判」记忆（B(ii)，不新建持久层文件）。
+
+    - undo 会话的 done unit_id = 回滚排除集（风险 #4：被回滚的会话不派生）；
+    - apply 会话按 header.ts 升序处理，后到会话覆盖先到；
+    - 仅带留痕字段（同时含 title 与 manual）且 manual is True 的 done 才派生，
+      留痕上线前的旧格式记录天然跳过。
+    """
+    journals_dir = Path(journals_dir)
+    excluded: set[str] = set()
+    applies: list[tuple[str, str, str, list[dict]]] = []
+    if journals_dir.is_dir():
+        for path in journals_dir.glob("*.jsonl"):
+            try:
+                entries = read_entries(path)
+            except OSError:
+                continue
+            headers = [e for e in entries if e.get("type") == "header"]
+            if not headers:
+                continue
+            header = headers[0]
+            dones = [e for e in entries if e.get("type") == "done"]
+            if header.get("kind") == "undo":
+                excluded.update(str(e["unit_id"]) for e in dones
+                                if e.get("unit_id") is not None)
+            elif header.get("kind") == "apply":
+                applies.append((str(header.get("ts") or ""), Path(path).name,
+                                str(header.get("sid") or ""), dones))
+
+    # ts 升序（同 ts 用文件名定序）→ 后到会话覆盖先到会话
+    applies.sort(key=lambda item: (item[0], item[1]))
+    mem: dict[tuple[str, int | None], dict] = {}
+    for ts, _name, sid, dones in applies:
+        for e in dones:
+            if "title" not in e or "manual" not in e or e["manual"] is not True:
+                continue
+            if e.get("unit_id") in excluded:
+                continue
+            key = (normalize_key(e["title"]), e.get("year"))
+            mem[key] = {"lib": e.get("target_lib"), "sid": sid, "ts": ts}
+    return mem

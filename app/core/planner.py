@@ -17,7 +17,8 @@ from pathlib import Path
 from . import learned as learned_store
 from .classifier import classify, map_genres
 from .config import Config
-from .nfo import parse_nfo_file
+from .journal import derive_memory
+from .nfo import normalize_key, parse_nfo_file
 from .scanner import _analyze_loose, find_nfo, snapshot_dir
 
 READY = "ready"
@@ -85,6 +86,8 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     created = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     # A-1：enabled 改义为「自学习建议门控」——关闭即不咨询 learned
     learned = learned_store.load(cfg.runtime_dir) if cfg.learning.enabled else {}
+    # B(ii)：跨扫描记忆只作注记建议，绝不改判定/默认勾选
+    memory = derive_memory(cfg.runtime_dir / "journals")
     plan_units: list[dict] = []
     for u in units:
         is_composite = getattr(u, "composite", False)
@@ -123,7 +126,12 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
         if is_composite and status == READY:
             status = ST_BATCH
 
-        plan_units.append({
+        hit = memory.get((normalize_key(u.title), u.year))
+        if hit:
+            unotes.append(f"跨扫描记忆：该片此前人工改判归入『{hit['lib']}』"
+                          f"（会话 {hit['sid']}），可在详情面板改判采纳")
+
+        unit: dict = {
             "id": u.id,
             "kind": u.kind,
             "label": u.title + (f" ({u.year})" if u.year else ""),
@@ -158,7 +166,10 @@ def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
             "total_size": u.total_size,
             "file_count": u.file_count,
             "max_mtime_ns": u.max_mtime_ns,
-        })
+        }
+        if hit:
+            unit["memory_lib"] = hit["lib"]
+        plan_units.append(unit)
 
     # 同 provider id 多版本 → 默认排除出批量执行
     # （本组仅 READY 单元参与，复合单元 status 为 ST_BATCH 天然被排除，无需另判。）
