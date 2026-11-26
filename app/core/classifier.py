@@ -51,6 +51,11 @@ def weak_alias_map(cfg: Config) -> dict[str, str]:
             if v in cfg.libraries}
 
 
+def covered_keys(cfg: Config) -> set[str]:
+    """A-1 旧票迁移用：库名 + 强/弱别名表已覆盖的归一键集合。"""
+    return set(alias_map(cfg)) | set(weak_alias_map(cfg))
+
+
 def map_genres_ex(cfg: Config,
                   genres: list[str]) -> tuple[list[str], list[str], list[str]]:
     """返回 (强命中库, 弱命中库, 未映射题材)，各自保序去重；同名键强表胜出。"""

@@ -254,6 +254,17 @@ def test_dirty_form_not_clobbered_by_refresh(qapp):
     tab.deleteLater()
 
 
+def test_config_tab_learning_texts():
+    """离屏静态断言：自学习 tooltip/标签改为「仅建议、不再记新票」口径。"""
+    src = Path("app/ui/config_tab.py").read_text(encoding="utf-8")
+    tip = "自学习建议开关：历史学习票仅作低置信建议展示，不再自动生效、不再记新票；阈值用于『提升建议』"
+    label = "自学习映射（仅作建议，不再记新票）"
+    assert tip in src
+    assert label in src
+    assert "仅作建议" in label and "自动生效" not in label
+    assert "人工改判与确认结果一律 +1 票" not in src
+
+
 def test_main_window_static_wiring():
     src = Path("app/ui/main_window.py").read_text(encoding="utf-8")
     assert "ConfigTab(" in src
@@ -654,7 +665,7 @@ def test_config_fields_have_tooltips(qapp):
         "f_plot_enabled": "平方根",
         "f_title_enabled": "最后尝试",
         "f_title_min_score": "不复用",
-        "f_learning_enabled": "learned.json",
+        "f_learning_enabled": "不再记新票",
         "f_priority_text": "吸走",
         "f_alias_text": "繁简",
         "f_weak_alias_text": "永不压过",

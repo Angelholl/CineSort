@@ -2,6 +2,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+from conftest import seed_learned
+
 from app.core import learned as ls
 from app.core.classifier import classify
 from app.core.config import Config, LearningOptions, Library, PlotOptions
@@ -26,21 +28,45 @@ def unit(genres, plot=""):
     return SimpleNamespace(nfo=NfoInfo(genres=list(genres), plot=plot))
 
 
-def test_record_manual_counts_one_vote(tmp_path):
-    ls.record(tmp_path, ["古装"], "武侠", manual=False)
-    ls.record(tmp_path, ["古装"], "武侠", manual=True)
-    info = ls.load(tmp_path)["entries"]["古装"]["libs"]["武侠"]
-    assert info["votes"] == 2 and info["manual"] == 1      # 一律 +1 票，仅作建议
+def test_record_retired(tmp_path):
+    """A-1：record 已退役；既购票目经确认+改判 apply 后逐字节不变。"""
+    assert hasattr(ls, "record") is False
+    from conftest import build_env, make_movie
+
+    from app.core import jobs
+    from app.core.config import load_config
+    from app.state import AppState
+
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    make_movie(cfg.source_root, "Opera (2021)", title="Opera", genres=("戏曲",),
+               plot="剧情简介", tmdb="31")
+    make_movie(cfg.source_root, "Gun Fight (2022)", title="Gun Fight", genres=("动作",),
+               plot="特工枪战", tmdb="22")
+    lp = seed_learned(cfg.runtime_dir, {"戏曲": {"科幻": {"votes": 1, "manual": 1}}})
+    before = lp.read_bytes()
+
+    state = AppState(cfg_path)
+    jobs.run_scan(state, jobs.Job("scan"))
+    jobs.run_apply(state, jobs.Job("apply"),
+                   ["Opera (2021)", "Gun Fight (2022)"],
+                   {"jellyfin_running", "fallback_ratio"},
+                   {"Opera (2021)": "科幻"})
+    assert lp.read_bytes() == before
 
 
 def test_fallback_never_learned(tmp_path):
-    ls.record(tmp_path, ["古装"], "兜底库", manual=True)
-    assert ls.load(tmp_path).get("entries", {}) == {}
+    """兜底库不入学习：A-1 后指向兜底库的 legacy 票也不参与建议。"""
+    seed_learned(tmp_path, {"古装": {"兜底库": {"votes": 1, "manual": 1}}})
+    cfg = make_cfg()
+    d = classify(unit(["古装"]), cfg, ls.load(tmp_path))
+    assert d.level == "fallback" and d.target == "兜底库"
+    assert not any("自学习" in e for e in d.evidence)
 
 
 def test_best_for_and_votes_for(tmp_path):
-    ls.record(tmp_path, ["古装"], "武侠", manual=True)
-    ls.record(tmp_path, ["武侠"], "武侠", manual=False)
+    seed_learned(tmp_path, {"古装": {"武侠": {"votes": 1, "manual": 1}},
+                            "武侠": {"武侠": {"votes": 1, "manual": 0}}})
     assert ls.best_for(ls.load(tmp_path), "古装") == ("武侠", 1, 1)
     assert ls.votes_for(ls.load(tmp_path), ["古装", "武侠"], "武侠") == 2
 
@@ -48,8 +74,7 @@ def test_best_for_and_votes_for(tmp_path):
 def test_learned_never_auto_effective_at_any_votes(tmp_path):
     cfg = make_cfg(min_votes=2)
     assert classify(unit(["古装"]), cfg).level == "fallback"   # 无学习记录
-    ls.record(tmp_path, ["古装"], "武侠", manual=True)
-    ls.record(tmp_path, ["古装"], "武侠", manual=True)          # 2 票达标
+    seed_learned(tmp_path, {"古装": {"武侠": {"votes": 2, "manual": 2}}})  # 2 票达标
     d = classify(unit(["古装"]), cfg, ls.load(tmp_path))
     assert d.level == "learned" and d.target == "武侠"
     assert d.confidence == "low"                              # 票数永不升置信
@@ -58,7 +83,7 @@ def test_learned_never_auto_effective_at_any_votes(tmp_path):
 
 def test_learned_soft_below_threshold_loses_to_plot(tmp_path):
     cfg = make_cfg(min_votes=2)
-    ls.record(tmp_path, ["古装"], "喜剧", manual=False)         # 1 票 < 2
+    seed_learned(tmp_path, {"古装": {"喜剧": {"votes": 1, "manual": 0}}})  # 1 票 < 2
     learned = ls.load(tmp_path)
     d = classify(unit(["古装"], "江湖武功传奇"), cfg, learned)   # 摘要命中 → plot 优先
     assert d.level == "plot" and d.target == "武侠"
@@ -90,9 +115,29 @@ def test_explicit_priority_beats_votes(tmp_path):
 
 
 def test_forget(tmp_path):
-    ls.record(tmp_path, ["古装"], "武侠", manual=True)
+    seed_learned(tmp_path, {"古装": {"武侠": {"votes": 1, "manual": 1}}})
     ls.forget(tmp_path, "古装", "武侠")
     assert ls.load(tmp_path)["entries"] == {}
+
+
+def test_prune_drops_covered_keeps_rest(tmp_path):
+    """A-1 旧票迁移：被库名/别名覆盖的键删除，其余保留；二次调用幂等。"""
+    from app.core.classifier import covered_keys
+
+    covered = covered_keys(make_cfg())
+    seed_learned(tmp_path, {"武侠": {"武侠": {"votes": 3, "manual": 1}},
+                            "西部": {"喜剧": {"votes": 2, "manual": 1}}})
+    assert ls.prune_legacy(tmp_path, covered) == 1
+    assert set(ls.load(tmp_path)["entries"]) == {"西部"}
+    assert ls.prune_legacy(tmp_path, covered) == 0
+
+
+def test_prune_empty_entry_removed(tmp_path):
+    """A-1 旧票迁移：libs 全空的 legacy 壳一并清掉。"""
+    seed_learned(tmp_path, {"空壳": {},
+                            "保留": {"武侠": {"votes": 1, "manual": 0}}})
+    assert ls.prune_legacy(tmp_path, set()) == 1
+    assert set(ls.load(tmp_path)["entries"]) == {"保留"}
 
 
 def test_config_learning_defaults(tmp_path):

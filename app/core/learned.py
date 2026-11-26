@@ -1,20 +1,18 @@
-"""自学习存储：把执行结果沉淀为 题材→库 映射（决策 D-20261125-05）。
+"""自学习历史票存储（legacy，决策 D-20261125-05 Task-07 A-1）。
 
 - 数据在 runtime/learned.json（跟配置位置走，不进用户手写的 config.toml）；
-- 人工改判与确认结果一律 +1 票，仅作建议（票数不再自动生效/择优）；
-- 兜底库不入学习（防止短路摘要预判与规则）；
-- 自学习命中恒为低置信、默认不勾选。
+- A-1 起全面停记：人工改判与确认结果一律不再写票（人工信号在会话留痕），
+  文件冻结为只读 legacy 建议展示 + 逐条「忘记」；
+- 旧票由 prune_legacy 一次性幂等迁移：被库名/别名覆盖的死键与空壳删除，
+  其余保留为 legacy 低置信建议、默认不勾选，票数永不自动生效或参与择优。
 """
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .nfo import normalize_key
-
-_FALLBACK_NAME = "兜底库"
 
 
 def _path(runtime_dir: Path) -> Path:
@@ -40,24 +38,23 @@ def save(runtime_dir: Path, data: dict) -> None:
     os.replace(tmp, _path(runtime_dir))
 
 
-def record(runtime_dir: Path, genres, target_lib: str, manual: bool) -> None:
-    """一次执行完成即沉淀：题材列表 → 目标库。"""
-    if not genres or not target_lib or target_lib == _FALLBACK_NAME:
-        return
+def prune_legacy(runtime_dir: Path, covered: set[str]) -> int:
+    """A-1 旧票迁移：删除被别名表/库名覆盖的死键及空壳项，返回删除数。
+
+    covered 为 normalize_key 形态的已覆盖键；幂等——二次运行返回 0。
+    无删除时不写盘，避免给没有历史票的安装凭空生成 learned.json。
+    """
     data = load(runtime_dir)
-    entries = data.setdefault("entries", {})
-    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    for g in genres:
-        key = normalize_key(g)
-        if not key:
-            continue
-        e = entries.setdefault(key, {"display": str(g).strip(), "libs": {}})
-        info = e["libs"].setdefault(target_lib, {"votes": 0, "manual": 0, "last": ""})
-        info["votes"] += 1
-        if manual:
-            info["manual"] += 1
-        info["last"] = now
-    save(runtime_dir, data)
+    entries = data.get("entries") or {}
+    removed = 0
+    for key in list(entries):
+        e = entries[key] or {}
+        if normalize_key(key) in covered or not (e.get("libs") or {}):
+            entries.pop(key, None)
+            removed += 1
+    if removed:
+        save(runtime_dir, data)
+    return removed
 
 
 def forget(runtime_dir: Path, key: str, lib: str) -> None:

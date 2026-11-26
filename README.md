@@ -112,8 +112,8 @@ Program Files）则自动改用 `%APPDATA%\CineSort\config.toml`。
 
 | 参数 | 意义 |
 |---|---|
-| `[learning].enabled` | 自学习开关：人工改判与确认结果一律 +1 票，沉淀为「题材 → 库」映射（`runtime/learned.json`）；仅作建议，不自动生效、不默认勾选；整体关闭后不再沉淀也不再给出建议 |
-| `[learning].min_votes` | 同一映射累计票数阈值：仅作留痕量尺，不再触发自动生效或置信提升；自学习恒为低置信建议、默认不勾选，永远让位于显式规则，兜底库不参与学习 |
+| `[learning].enabled` | 自学习建议开关：历史学习票仅作低置信建议展示，不再自动生效、不再记新票；关闭 = classify 不咨询 learned（`runtime/learned.json` 冻结，仅逐条忘记与旧票迁移） |
+| `[learning].min_votes` | 自学习建议阈值：字段保留，转作 D 的「提升建议」阈值；历史票恒为低置信建议、默认不勾选，永远让位于显式规则，兜底库不参与学习 |
 
 ### [[library]] 媒体库定义
 

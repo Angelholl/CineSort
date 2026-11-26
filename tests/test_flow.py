@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import build_env, make_movie
+from conftest import build_env, make_movie, seed_learned
 
 from app.core import jobs as jobs_mod
 from app.core import preflight, scanner
@@ -45,7 +45,7 @@ def env_state(tmp_path):
     return AppState(cfg_path), cfg
 
 
-def test_scan_apply_undo_flow(env_state):
+def test_record_retired_no_votes_written(env_state):
     state, env = env_state
 
     state.start_scan()
@@ -68,12 +68,11 @@ def test_scan_apply_undo_flow(env_state):
     # invalidate_plan 已由 run_apply 触发，重新读盘后应见 applied
     assert state.plan()["stats"]["by_status"]["applied"] == 2
 
-    # 执行结果应沉淀为自学习映射（D-20261101-03）
-    learned = json.loads((env.path.parent / "runtime" / "learned.json")
-                         .read_text(encoding="utf-8"))
-    libs_voted = {lib for e in learned["entries"].values() for lib in e["libs"]}
-    assert {"科幻", "动作"} <= libs_voted
-    assert "learned" in state.state_snapshot()
+    # A-1：确认+改判都不再记票，learned.json 不存在或 entries 为空
+    lp = env.path.parent / "runtime" / "learned.json"
+    learned = json.loads(lp.read_text(encoding="utf-8")) if lp.is_file() else {}
+    assert not learned.get("entries")
+    assert state.state_snapshot()["learned"] == []
 
     sess = list_sessions(state.runtime_dir() / "journals")[0]["file"]
     prev = state.undo_preview(sess)
@@ -86,8 +85,8 @@ def test_scan_apply_undo_flow(env_state):
     assert not (env.libraries["科幻"].path / "Space War (2021)").exists()
 
 
-def test_apply_manual_override_records_no_votes(tmp_path):
-    """A-2 窗口期：人工改判单元不记票；无改判的确认单元仍记 1 票。"""
+def test_apply_records_nothing_at_all(tmp_path):
+    """A-1：确认单元与人工改判单元一律不记票。"""
     cfg_path = build_env(tmp_path)
     cfg = load_config(cfg_path)
     src = cfg.source_root
@@ -108,8 +107,24 @@ def test_apply_manual_override_records_no_votes(tmp_path):
     lp = cfg.path.parent / "runtime" / "learned.json"
     learned = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {}
     entries = learned.get("entries", {})
-    assert "戏曲" not in entries                           # 人工改判不沉淀
-    assert entries["动作"]["libs"]["动作"]["votes"] == 1   # 确认单元 1 票
+    assert not entries                                     # 确认与改判均无新增键
+
+
+def test_prune_triggered_by_scan(tmp_path):
+    """A-1：扫描尾部一次性迁移旧票——covered 键清掉、其余保留、日志留痕。"""
+    cfg_path = build_env(tmp_path)
+    cfg = load_config(cfg_path)
+    seed_learned(cfg.runtime_dir, {
+        "科幻": {"科幻": {"votes": 2, "manual": 1}},        # 库名覆盖 → 死键
+        "西部": {"动作": {"votes": 1, "manual": 0}},        # 未覆盖 → legacy 建议
+    })
+    state = AppState(cfg_path)
+    state.start_scan()
+    st = wait_job(state)
+    assert st["status"] == "done", st["log"]
+    assert any("旧票迁移" in line for line in st["log"])
+    lp = cfg.runtime_dir / "learned.json"
+    assert set(json.loads(lp.read_text(encoding="utf-8"))["entries"]) == {"西部"}
 
 
 def test_apply_blocked_on_source_drift(env_state):

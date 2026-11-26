@@ -32,6 +32,30 @@ def make_movie(root, name, *, title=None, genres=("动作",), plot="剧情简介
     return d
 
 
+def seed_learned(runtime_dir, entries: dict):
+    """直写 runtime/learned.json 构造历史票目（record 退役后唯一播种路径）。
+
+    entries: {题材键: {库名: {"votes": n, "manual": m, "last": ""}}}；
+    票数也可写整数简写（manual/last 取默认 0/""）。返回 learned.json 路径。
+    """
+    from app.core.learned import save
+    from app.core.nfo import normalize_key
+
+    data = {"entries": {}}
+    for genre, libs in entries.items():
+        key = normalize_key(genre)
+        entry = data["entries"].setdefault(key, {"display": str(genre).strip(), "libs": {}})
+        for lib, info in libs.items():
+            if isinstance(info, dict):
+                entry["libs"][lib] = {"votes": int(info.get("votes", 0)),
+                                      "manual": int(info.get("manual", 0)),
+                                      "last": info.get("last", "")}
+            else:
+                entry["libs"][lib] = {"votes": int(info), "manual": 0, "last": ""}
+    save(runtime_dir, data)
+    return Path(runtime_dir) / "learned.json"
+
+
 def build_env(tmp_path, *, strategy="smart", overrides=None) -> Path:
     """构造完整可运行环境：源目录 + 两个媒体库 + 兜底库 + config.toml。"""
     from app.core.config import dump_config_text

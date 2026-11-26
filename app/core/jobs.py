@@ -9,6 +9,7 @@ from pathlib import Path
 from . import fsops, preflight
 from . import learned as learned_store
 from . import scanner as scanner_mod
+from .classifier import covered_keys
 from .config import check_session_root, load_config
 from .journal import Journal, done_entries, is_valid_session_name
 from .planner import (
@@ -132,6 +133,8 @@ def run_scan(state, job: Job) -> None:
         f" / 摘要预判 {st['ready_levels'].get('plot', 0)}"
         f" / 兜底 {st['ready_levels'].get('fallback', 0)}）"
     )
+    n = learned_store.prune_legacy(cfg.runtime_dir, covered_keys(cfg))
+    job.log(f"旧票迁移：清理已被别名表覆盖的学习票 {n} 条")
     job.result = st
 
 
@@ -264,18 +267,7 @@ def run_apply(state, job: Job, ids: list[str], acks: set[str],
     if done_ids:
         mark_applied(cfg.runtime_dir, done_ids)
         state.invalidate_plan()
-        if cfg.learning.enabled:
-            # A-2（D-20261125-05）：人工改判信号移入会话留痕（Task-04），不再记题材票；
-            # 其余确认单元按窗口期语义仍记 1 票（Task-07 再改写归零）。
-            # 复合单元整目录改判不入学习：其 NFO 至多描述其中一部影片，
-            # 不为占位分类记账（计划 Task-05「learned 空转」的落实）。
-            for u in units:
-                if u["id"] not in set(done_ids) or u.get("composite"):
-                    continue
-                if u["id"] in overrides:
-                    continue
-                learned_store.record(cfg.runtime_dir, u["genres"],
-                                     u["target_lib"], manual=False)
+        # A-1 起停记；人工信号在会话留痕
     job.result = {"moved": moved, "failed": failed, "failures": failures,
                   "session": jr.sid}
 

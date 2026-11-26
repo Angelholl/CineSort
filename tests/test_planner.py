@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from conftest import build_env, make_movie
+from conftest import build_env, make_movie, seed_learned
 
 from app.core import scanner
 from app.core.config import describe, load_config, save_config_dict
@@ -38,17 +38,27 @@ def test_plan_ready_and_decision(tmp_path):
 
 def test_plan_learned_level_never_default_selected(tmp_path):
     """A-2：票数退出择优后，自学习级单元即便票数达标也永不默认勾选。"""
-    from app.core import learned as learned_store
-
     cfg = load_config(build_env(tmp_path))
     make_movie(cfg.source_root, "播剧 (2021)", title="播剧", genres=("播",),
                plot="剧情简介", tmdb="31")
-    for _ in range(2):
-        learned_store.record(cfg.runtime_dir, ["播"], "科幻", manual=True)  # 2 票人工票
+    seed_learned(cfg.runtime_dir, {"播": {"科幻": {"votes": 2, "manual": 2}}})  # 2 票人工票
     plan = scan_and_plan(cfg)
     u = by_id(plan)["播剧 (2021)"]
     assert u["level"] == "learned" and u["status"] == "ready"
     assert u["default_selected"] is False
+
+
+def test_learning_disabled_gates_suggestions(tmp_path):
+    """enabled=False 即建议门控关闭：build_plan 不咨询 learned。"""
+    cfg = load_config(build_env(tmp_path, overrides={
+        "learning": {"enabled": False, "min_votes": 2}}))
+    make_movie(cfg.source_root, "播剧 (2021)", title="播剧", genres=("播",),
+               plot="剧情简介", tmdb="31")
+    seed_learned(cfg.runtime_dir, {"播": {"科幻": {"votes": 2, "manual": 2}}})
+    plan = scan_and_plan(cfg)
+    u = by_id(plan)["播剧 (2021)"]
+    assert u["level"] != "learned"
+    assert not any("自学习" in e for e in u["evidence"])
 
 
 def test_fallback_decision(tmp_path):

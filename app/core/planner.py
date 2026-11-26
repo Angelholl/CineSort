@@ -83,7 +83,8 @@ def unit_dst_dir(target_root: str | Path, actress: str | None, dst_name: str) ->
 
 def build_plan(cfg: Config, units, notes: list[dict]) -> dict:
     created = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    learned = learned_store.load(cfg.runtime_dir)
+    # A-1：enabled 改义为「自学习建议门控」——关闭即不咨询 learned
+    learned = learned_store.load(cfg.runtime_dir) if cfg.learning.enabled else {}
     plan_units: list[dict] = []
     for u in units:
         is_composite = getattr(u, "composite", False)

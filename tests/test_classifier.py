@@ -273,15 +273,14 @@ def test_title_evidence_label_distinct():
 def test_learned_lib_removed_from_config_is_ignored(tmp_path):
     """审计回归：learned.json 指向已删除/改名的库时必须跳过该映射，
     不得 KeyError 崩掉扫描（build_plan → classify）。"""
-    from conftest import build_env
+    from conftest import build_env, seed_learned
 
     from app.core import learned as learned_store
     from app.core.config import load_config
 
     cfg = load_config(build_env(tmp_path))
-    learned_store.record(cfg.runtime_dir, ["西部"], "动作", manual=True)
-    learned_store.record(cfg.runtime_dir, ["西部"], "动作", manual=True)  # 达阈值（auto 路径）
-    learned_store.record(cfg.runtime_dir, ["悬疑"], "动作", manual=False)  # 1 票未达阈值（soft 建议路径）
+    seed_learned(cfg.runtime_dir, {"西部": {"动作": {"votes": 2, "manual": 2}},
+                                   "悬疑": {"动作": {"votes": 1, "manual": 0}}})
     cfg.libraries.pop("动作")                       # 用户随后删除该库
     d = classify(unit(("西部",)), cfg, learned_store.load(cfg.runtime_dir))
     assert d.level == "fallback" and d.target == "兜底库"

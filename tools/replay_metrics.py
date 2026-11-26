@@ -81,8 +81,8 @@ def _closure(cfg: Config, plan: dict) -> dict:
     by_id = {str(u["id"]): u for u in units if u.get("id")}
     by_src = {str(u["src"]): u for u in units if u.get("src")}
 
-    # 按 header ts 升序复放 apply 会话：manual 记 0 票（人工票不应沉淀），
-    # 确认票记 1 票；tuple 入键即使加 0 也建立「触及对」。
+    # 按 header ts 升序复放 apply 会话：A-1 起确认与改判都不再记票，
+    # 触及对恒为 0 票；tuple 入键即使加 0 也建立「触及对」。
     expected: Counter[tuple[str, str]] = Counter()
     applies = sorted((s for s in sessions if s.get("kind") == "apply"),
                      key=lambda s: s.get("ts") or "")
@@ -102,7 +102,7 @@ def _closure(cfg: Config, plan: dict) -> dict:
             if not target:
                 continue
             for g in pu.get("genres") or []:
-                expected[(normalize_key(g), target)] += 0 if entry["manual"] else 1
+                expected[(normalize_key(g), target)] += 0
 
     learned = load_learned(cfg.runtime_dir)
     actual: dict[tuple[str, str], int] = {}
