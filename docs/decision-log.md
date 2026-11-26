@@ -267,3 +267,10 @@
   7. 手工操作量预计不减少（80% 落点不在候选内）；若要降低需另立信号源议题并复议 D-20261109-01。owner 知情拍板。
   8. 界面口径（代码读法"无跨会话移动级行集视图"与 owner 截图不符）留终验 GUI 黑盒验证；若证实跨会话累积则评议方更正读法。
   9. 证据文案"优先级第 1 位"待修（`I:\CineSort\app\core\classifier.py:238`、:244）。
+
+### D-20261125-05 执行期补记（收口，2026-11-26，主模型；计划 §Task-10 步骤 6 授权）
+
+- **T-05 文案分叉定读落地**（风险 #9 闭环）：胜者表内→「（优先级第 N 位）」、表外→「（未列入优先级表）」两分支均已实现，`test_evidence_priority_text_fixed` 钉死；旧 smart 行为逐字不变。
+- **T-07 裁定（卡外改动=成立）**：tools/replay_metrics.py 闭合算法改恒加零（`+= 0`）——由本卡钉死测试 `test_replay_closure_zero_after_a1` 强制：A-1 后无新票写入路径，留痕后会话触及对的推演票数恒 0；主模型裁定与 Spec 独立评审一致同意。
+- **备案清单（判断项，只记录不动作）**：config_tab:86 CONFLICT_MODES 硬编码清单；test_journal `_wait_job` 复制点（第 2 例，第 3 例触发 skill-creator 固化提议门）；jobs.py prune 日志文案口径窄于动作面；plan_tab:710 死 None-guard 分支；set_override 兄弟直写与主行不联动之不对称；alias_scan_dialog `_make_promotion_table` 样板复制；test_journal/test_planner 两处会话 jsonl 写入 helper 形状重复（conftest 候选，第 3 例注意）；B(ii) undo 排除集=全局 unit_id 扫拢未按 meta.undoes 配对回 apply 会话（对卡面"取 done unit_id 集"忠实；unit_id 复用之陈旧排除残余记在案）；ts 排序用原始字符串字典序+str(unit_id) 归一仅落排除集一侧（单机一致格式下今日成立）。
+- **风险验证值快照**：#1 实机 strategy 当前值=smart（切换权 owner，统一复测轮）；#2 重放胜出依据 votes=0 ✓；#6 learned.json 新增人工票数恒 0 ✓。四指标终值见计划 §4 收口行。
