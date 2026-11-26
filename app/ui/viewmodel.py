@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.core.nfo import normalize_key
 from app.core.planner import (
     READY,
+    ST_MULTI,
     STATUS_LABELS,
     UNLOCKABLE_STATUSES,
     session_dst_root,
@@ -46,6 +48,11 @@ CONFIDENCE_BADGES = {
     "medium": ("中", "plot"),
     "low": ("低", "fb"),
 }
+
+
+def _work_key(u: dict) -> tuple[str, int | None]:
+    """同作品套用键：规范化片名 + 年份；provider id 仅作一致性门、不入键。"""
+    return normalize_key(u.get("title") or ""), u.get("year")
 
 
 def level_badge(unit: dict) -> tuple[str, str]:
@@ -240,21 +247,65 @@ class PlanViewModel:
 
     # ------------------------------------------------------------- 改判
 
-    def set_override(self, unit_id: str, lib: str | None) -> None:
-        """lib 为 None / 空串表示撤销改判，回到规则判定的目标库。"""
+    def _write_override(self, unit_id: str, lib: str | None) -> bool:
+        """单点写/清 override；批量入口专用，不触发兄弟套用。"""
         if unit_id not in self._by_id:
-            return
+            return False
         if lib:
             self.overrides[unit_id] = lib
         else:
             self.overrides.pop(unit_id, None)
+        return True
+
+    def sibling_overrides(self, unit_id: str, lib: str) -> list[str]:
+        """同作品（规范化片名+年份）兄弟中可套用改判的 id（不自动勾选）。
+
+        资格四门：异 id 且同键、状态 READY/ST_MULTI、provider 一致性、
+        落点 (lib, actress, dst_name) 不互撞。无片名的旧/演示数据不成键，
+        避免把无关单元误当同作品。
+        """
+        me = self._by_id.get(unit_id)
+        if me is None or not lib:
+            return []
+        key = _work_key(me)
+        if not key[0]:
+            return []
+        seen = {(lib, me.get("actress"), me.get("dst_name"))}
+        out: list[str] = []
+        for u in self._units:
+            if u["id"] == unit_id or _work_key(u) != key:
+                continue
+            if u.get("status") not in (READY, ST_MULTI):
+                continue
+            if not (u.get("provider") is None or me.get("provider") is None
+                    or u["provider"] == me["provider"]):
+                continue
+            dst_key = (lib, u.get("actress"), u.get("dst_name"))
+            if dst_key in seen:
+                continue
+            seen.add(dst_key)
+            out.append(u["id"])
+        return out
+
+    def set_override(self, unit_id: str, lib: str | None) -> int:
+        """lib 为 None / 空串表示撤销改判，回到规则判定的目标库。
+
+        返回本单元之外被套用的兄弟数；撤销（lib=None）不联动撤销兄弟。
+        """
+        if not self._write_override(unit_id, lib):
+            return 0
+        if not lib:
+            return 0
+        siblings = self.sibling_overrides(unit_id, lib)
+        for uid in siblings:
+            self.overrides[uid] = lib
+        return len(siblings)
 
     def set_override_many(self, unit_ids, lib: str | None) -> int:
-        """批量改判：对给定 id 集合写/清 override，返回生效条数。"""
+        """批量改判：对给定 id 集合写/清 override，返回生效条数；不触发套用。"""
         n = 0
         for uid in unit_ids:
-            if uid in self._by_id:
-                self.set_override(uid, lib)
+            if self._write_override(uid, lib):
                 n += 1
         return n
 

@@ -292,7 +292,8 @@ class PlanTab(QWidget):
         self.d_override = QComboBox()
         self.d_override.currentTextChanged.connect(self._on_override_changed)
         lay.addWidget(self.d_override)
-        hint = QLabel("改判不再记自学习票；「执行选中」按改判后的目标库搬运。")
+        hint = QLabel("改判不再记自学习票；「执行选中」按改判后的目标库搬运。"
+                      "同片名+同年份单元自动套用改判。")
         hint.setProperty("mini", True)
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -703,17 +704,23 @@ class PlanTab(QWidget):
         u = self._current_unit
         if u is None:
             return
-        self.vm.set_override(u["id"], None if text.startswith("（不改判）") else text)
-        overridden = u["id"] in self.vm.overrides
-        row = next((r for r, unit in enumerate(self._rows)
-                    if unit["id"] == u["id"]), -1)
-        if row >= 0:
+        lib = None if text.startswith("（不改判）") else text
+        n = self.vm.set_override(u["id"], lib)
+        affected = {u["id"]}
+        if lib and self.vm is not None:
+            affected.update(self.vm.sibling_overrides(u["id"], lib))
+        for row, unit in enumerate(self._rows):
+            if unit["id"] not in affected:
+                continue
             lib_item = self.table.item(row, COL_LIB)
             if lib_item:
-                lib_item.setText(self.vm.effective_target_lib(u)
+                overridden = unit["id"] in self.vm.overrides
+                lib_item.setText(self.vm.effective_target_lib(unit)
                                  + (" *" if overridden else ""))
                 lib_item.setForeground(QColor(theme.ACC if overridden else theme.DIM))
         self.d_fields["lib"].setText(self.vm.effective_target_lib(u))
+        if n > 0:
+            self.toast(f"已套用到 {n} 部同作品单元（不自动勾选）")
 
 
 class BlockConfirmDialog(QDialog):

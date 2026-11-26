@@ -8,7 +8,16 @@ from pathlib import Path
 import pytest
 
 from app.core import planner
-from app.core.planner import READY, ST_APPLIED, ST_CONFLICT, ST_MULTI, STATUS_LABELS
+from app.core.planner import (
+    READY,
+    ST_APPLIED,
+    ST_BATCH,
+    ST_CONFLICT,
+    ST_INCOMPLETE,
+    ST_MULTI,
+    ST_PLACED,
+    STATUS_LABELS,
+)
 from app.ui import viewmodel as vm
 
 
@@ -485,3 +494,124 @@ def test_unlock_statuses_single_point():
                 Path(vm.__file__).read_text(encoding="utf-8")):
         assert "in (ST_BATCH, ST_MULTI)" not in src      # 散点裸元组清零
         assert "UNLOCKABLE_STATUSES" in src
+
+
+# ---------------- B(i) 同作品套用改判（片名+年份键，id 一致性门） ----------------
+
+
+def make_work_unit(uid: str, *, title: str = "Test Movie 2", year=2020,
+                   provider="tmdb://123", status=READY,
+                   dst_name: str | None = None, actress: str | None = None) -> dict:
+    """同作品单元夹具：片名+年份相同、provider 可调、落点名互异（防误撞门）。"""
+    u = make_unit(uid, status=status, default_selected=False)
+    u.update({
+        "title": title,
+        "year": year,
+        "provider": provider,
+        "actress": actress,
+        "dst_name": dst_name if dst_name is not None else f"dir-{uid}",
+    })
+    return u
+
+
+def test_sibling_apply_same_title_year_id():
+    """同片名+年份+provider 三单元：改判 u1 → u2/u3 生效、返回 2、不自动勾选。"""
+    units = [make_work_unit("u1"), make_work_unit("u2"), make_work_unit("u3")]
+    model = vm.PlanViewModel(units)
+    assert model.set_override("u1", "科幻") == 2
+    assert model.overrides == {"u1": "科幻", "u2": "科幻", "u3": "科幻"}
+    assert "u2" not in model.checked and "u3" not in model.checked
+    for uid in ("u2", "u3"):
+        assert model.effective_target_lib(model.unit(uid)) == "科幻"
+
+
+def test_sibling_provider_mismatch_not_applied():
+    """同片名+年份但 provider 不同（分集/剧集反例）→ id 一致性门拦下。"""
+    u1 = make_work_unit("u1", provider="tmdb://1")
+    u2 = make_work_unit("u2", provider="tmdb://2")
+    model = vm.PlanViewModel([u1, u2])
+    assert model.set_override("u1", "科幻") == 0
+    assert "u2" not in model.overrides
+
+
+def test_sibling_bare_id_none_consistent():
+    """双方 provider 均为 None → 片名+年份键独立成立，仍套用。"""
+    units = [make_work_unit("u1", provider=None), make_work_unit("u2", provider=None)]
+    model = vm.PlanViewModel(units)
+    assert model.set_override("u1", "科幻") == 1
+    assert model.effective_target_lib(model.unit("u2")) == "科幻"
+
+
+def test_sibling_applied_and_composite_excluded():
+    """已执行 / 复合（ST_BATCH）兄弟不套用（假同 id 不得跨成因套用）。"""
+    u1 = make_work_unit("u1")
+    u2 = make_work_unit("u2", status=ST_APPLIED)
+    u3 = make_work_unit("u3", status=ST_BATCH)
+    model = vm.PlanViewModel([u1, u2, u3])
+    assert model.set_override("u1", "科幻") == 0
+    assert "u2" not in model.overrides and "u3" not in model.overrides
+
+
+def test_sibling_stmulti_receives_unchecked():
+    """ST_MULTI 多版本兄弟可接收套用，但不进勾选集（多版本主场景）。"""
+    u1 = make_work_unit("u1")
+    u2 = make_work_unit("u2", status=ST_MULTI)
+    model = vm.PlanViewModel([u1, u2])
+    assert model.set_override("u1", "科幻") == 1
+    assert model.effective_target_lib(model.unit("u2")) == "科幻"
+    assert "u2" not in model.checked
+    assert model._executable(model.unit("u2")) is True
+
+
+def test_sibling_dst_collision_skipped():
+    """两兄弟落点键 (lib, actress, dst_name) 相同 → 第二个跳过。"""
+    u1 = make_work_unit("u1", dst_name="dir-u1")
+    u2 = make_work_unit("u2", dst_name="same-dir")
+    u3 = make_work_unit("u3", dst_name="same-dir")
+    model = vm.PlanViewModel([u1, u2, u3])
+    assert model.set_override("u1", "科幻") == 1
+    assert "u2" in model.overrides
+    assert "u3" not in model.overrides
+
+
+def test_sibling_conflict_status_skipped():
+    """同名冲突 / 已在位 / 半成品残留一律不套用。"""
+    u1 = make_work_unit("u1")
+    others = [make_work_unit("u2", status=ST_CONFLICT),
+              make_work_unit("u3", status=ST_PLACED),
+              make_work_unit("u4", status=ST_INCOMPLETE)]
+    model = vm.PlanViewModel([u1] + others)
+    assert model.set_override("u1", "科幻") == 0
+    assert not ({"u2", "u3", "u4"} & set(model.overrides))
+
+
+def test_clear_override_no_propagation():
+    """撤销 u1 改判不联动撤销兄弟（lib=None 不扩散）。"""
+    units = [make_work_unit("u1"), make_work_unit("u2"), make_work_unit("u3")]
+    model = vm.PlanViewModel(units)
+    assert model.set_override("u1", "科幻") == 2
+    assert model.set_override("u1", None) == 0
+    assert "u1" not in model.overrides
+    assert model.effective_target_lib(model.unit("u2")) == "科幻"
+    assert model.effective_target_lib(model.unit("u3")) == "科幻"
+
+
+def test_set_override_many_no_expansion():
+    """批量改判只作用给定 id；与单条套用分支分离（不改既有语义）。"""
+    u1, u2, u3 = (make_work_unit(x) for x in ("u1", "u2", "u3"))
+    model = vm.PlanViewModel([u1, u2, u3])
+    assert model.set_override_many([u1["id"]], "科幻") == 1
+    assert model.overrides == {u1["id"]: "科幻"}
+    # 同一 u1 的单条接口会外扩、批量不会——两路必须分离
+    assert model.sibling_overrides(u1["id"], "科幻") == [u2["id"], u3["id"]]
+    assert "u2" not in model.overrides and "u3" not in model.overrides
+
+
+def test_fullwidth_title_key_normalized():
+    """全角片名与半角片名同年份 → normalize_key 归一后互套。"""
+    u1 = make_work_unit("u1", title="Ｔｅｓｔ Ｍｏｖｉｅ ２", year=2020)
+    u2 = make_work_unit("u2", title="Test Movie 2", year=2020)
+    assert vm._work_key(u1) == vm._work_key(u2)
+    model = vm.PlanViewModel([u1, u2])
+    assert model.set_override("u1", "科幻") == 1
+    assert model.effective_target_lib(model.unit("u2")) == "科幻"

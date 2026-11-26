@@ -655,3 +655,32 @@ def test_demo_units_include_batch_target_composite_row():
         assert item.text() == STATUS_LABELS[ST_BATCH] == "整目录待改判"
     finally:
         tab.deleteLater()
+
+
+# ---------------- B(i) 兄弟套用的 GUI 接线（toast + 兄弟行目标库列） ----------------
+
+
+def test_override_applies_sibling_toast(qapp):
+    """详情面板改判 → toast 报套用数；兄弟行目标库列同步显示改判库（不勾选）。"""
+    def work_unit(uid: str, lib: str = "科幻") -> dict:
+        u = fake_units(1, seed=11)[0].copy()
+        u.update({"id": uid, "label": uid, "title": "Movie 2", "year": 2020,
+                  "provider": "tmdb://7", "target_lib": lib, "status": "ready",
+                  "default_selected": False, "dst_name": f"dir-{uid}",
+                  "actress": None})
+        return u
+
+    units = [work_unit("u1"), work_unit("u2"), work_unit("u3", "动作")]
+    toasts: list[str] = []
+    tab = PlanTab(_PlanStubState({"units": units}), None, toast=toasts.append)
+    try:
+        tab.table.selectRow(0)
+        assert tab._current_unit["id"] == "u1"
+        target = next(lib for lib in tab._libs if lib != "科幻")
+        tab.d_override.setCurrentText(target)
+        assert toasts[-1] == "已套用到 2 部同作品单元（不自动勾选）"
+        for row in (1, 2):
+            assert tab.table.item(row, COL_LIB).text().startswith(target)
+        assert "u2" not in tab.vm.checked and "u3" not in tab.vm.checked
+    finally:
+        tab.deleteLater()
