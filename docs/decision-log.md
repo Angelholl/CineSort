@@ -274,3 +274,10 @@
 - **T-07 裁定（卡外改动=成立）**：tools/replay_metrics.py 闭合算法改恒加零（`+= 0`）——由本卡钉死测试 `test_replay_closure_zero_after_a1` 强制：A-1 后无新票写入路径，留痕后会话触及对的推演票数恒 0；主模型裁定与 Spec 独立评审一致同意。
 - **备案清单（判断项，只记录不动作）**：config_tab:86 CONFLICT_MODES 硬编码清单；test_journal `_wait_job` 复制点（第 2 例，第 3 例触发 skill-creator 固化提议门）；jobs.py prune 日志文案口径窄于动作面；plan_tab:710 死 None-guard 分支；set_override 兄弟直写与主行不联动之不对称；alias_scan_dialog `_make_promotion_table` 样板复制；test_journal/test_planner 两处会话 jsonl 写入 helper 形状重复（conftest 候选，第 3 例注意）；B(ii) undo 排除集=全局 unit_id 扫拢未按 meta.undoes 配对回 apply 会话（对卡面"取 done unit_id 集"忠实；unit_id 复用之陈旧排除残余记在案）；ts 排序用原始字符串字典序+str(unit_id) 归一仅落排除集一侧（单机一致格式下今日成立）。
 - **风险验证值快照**：#1 实机 strategy 当前值=smart（切换权 owner，统一复测轮）；#2 重放胜出依据 votes=0 ✓；#6 learned.json 新增人工票数恒 0 ✓。四指标终值见计划 §4 收口行。
+
+## D-20261128-01 v0.6.4 发版（owner 令"发版继续"）
+- 背景：D-20261125-03/04/05 三批全部收口后发版；版号 0.6.4 已于前会话写入工作区（修订号递增，0.6.x 系列从 D-20261112-04 先例），owner 令"发版继续"追认推进。0.7.0 曾被驳回（D-20261112-04），维持 0.6.x。
+- 发版内容（bd38db9..26092da 三批）：D-20261125-03 删库死锁修复（目录存在性宽容降级+添加库关键词预填）；D-20261125-04 实机反馈批（source_root 库内放行+零库宽容+扫描添加子文件夹+表头全选+别名扫描分析+已覆盖过滤+批量分拣）；D-20261125-05 分类五项调整（A-1 学习票停记+旧票迁移、A-2 自学习只作建议、B(i) 同作品会话内套用、B(ii) 跨扫描记忆派生、C-1 优先级表填充、E smart_weighted 新策略+置信度诚实化、D 提升建议页、T-05 胜者文案分叉）。
+- 变更面：`app/__init__.py` 与 `installer/installer.iss` 兜底默认值 0.6.3→0.6.4。
+- 验证：ruff 全绿；mypy app 149=基线零新增；全量 430 passed（400 只增不减）；版号双文件 grep 实证 0.6.4。
+- 遗留：D-20261125-05 统一实机复测轮（E 策略切换权 owner）仍待执行，不阻塞本发版。
